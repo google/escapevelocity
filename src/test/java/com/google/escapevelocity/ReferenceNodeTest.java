@@ -15,11 +15,11 @@ package com.google.escapevelocity;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.escapevelocity.ReferenceNode.MethodReferenceNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Primitives;
 import com.google.common.truth.Expect;
-import com.google.escapevelocity.ReferenceNode.MethodReferenceNode;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Collections;

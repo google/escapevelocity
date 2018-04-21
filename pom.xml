@@ -26,21 +26,18 @@
     A reimplementation of a subset of the Apache Velocity templating system.
   </description>
 
-  <!-- TODO(emcmanus)
   <scm>
-    <url>http://github.com/google/auto</url>
-    <connection>scm:git:git://github.com/google/auto.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/google/auto.git</developerConnection>
+    <url>http://github.com/google/escapevelocity</url>
+    <connection>scm:git:git://github.com/google/escapevelocity.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/google/escapevelocity.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
-  -->
 
   <dependencies>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
       <version>23.5-jre</version>
-      <scope>test</scope>
     </dependency>
     <!-- test dependencies -->
     <dependency>
@@ -76,8 +73,8 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.7.0</version>
         <configuration>
-          <source>1.7</source>
-          <target>1.7</target>
+          <source>1.8</source>
+          <target>1.8</target>
           <compilerArgument>-Xlint:all</compilerArgument>
           <showWarnings>true</showWarnings>
           <showDeprecation>true</showDeprecation>

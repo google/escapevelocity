@@ -11,6 +11,25 @@
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
  */
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package com.google.escapevelocity;
 
 import com.google.escapevelocity.DirectiveNode.SetNode;
@@ -29,14 +48,16 @@ import com.google.escapevelocity.TokenNode.ForEachTokenNode;
 import com.google.escapevelocity.TokenNode.IfTokenNode;
 import com.google.escapevelocity.TokenNode.MacroDefinitionTokenNode;
 import com.google.escapevelocity.TokenNode.NestedTokenNode;
+import com.google.common.base.CharMatcher;
+import com.google.common.base.Verify;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.Iterables;
+import com.google.common.primitives.Chars;
+import com.google.common.primitives.Ints;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.Reader;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * A parser that reads input from the given {@link Reader} and parses it to produce a
@@ -53,11 +74,19 @@ class Parser {
 
   /**
    * The invariant of this parser is that {@code c} is always the next character of interest.
-   * This means that we never have to "unget" a character by reading too far. For example, after
-   * we parse an integer, {@code c} will be the first character after the integer, which is exactly
-   * the state we will be in when there are no more digits.
+   * This means that we almost never have to "unget" a character by reading too far. For example,
+   * after we parse an integer, {@code c} will be the first character after the integer, which is
+   * exactly the state we will be in when there are no more digits.
+   *
+   * <p>Sometimes we need to read two characters ahead, and in that case we use {@link #pushback}.
    */
   private int c;
+
+  /**
+   * A single character of pushback. If this is not negative, the {@link #next()} method will
+   * return it instead of reading a character.
+   */
+  private int pushback = -1;
 
   Parser(Reader reader, String resourceName, Template.ResourceOpener resourceOpener)
       throws IOException {
@@ -127,8 +156,26 @@ class Parser {
    */
   private void next() throws IOException {
     if (c != EOF) {
-      c = reader.read();
+      if (pushback < 0) {
+        c = reader.read();
+      } else {
+        c = pushback;
+        pushback = -1;
+      }
     }
+  }
+
+  /**
+   * Saves the current character {@code c} to be read again, and sets {@code c} to the given
+   * {@code c1}. Suppose the text contains {@code xy} and we have just read {@code y}.
+   * So {@code c == 'y'}. Now if we execute {@code pushback('x')}, we will have
+   * {@code c == 'x'} and the next call to {@link #next()} will set {@code c == 'y'}. Subsequent
+   * calls to {@code next()} will continue reading from {@link #reader}. So the pushback
+   * essentially puts us back in the state we were in before we read {@code y}.
+   */
+  private void pushback(int c1) {
+    pushback = c;
+    c = c1;
   }
 
   /**
@@ -174,17 +221,24 @@ class Parser {
   private Node parseNode() throws IOException {
     if (c == '#') {
       next();
-      if (c == '#') {
-        return parseComment();
-      } else if (isAsciiLetter(c) || c == '{') {
-        return parseDirective();
-      } else if (c == '[') {
-        return parseHashSquare();
-      } else {
-        // For consistency with Velocity, we treat # not followed by # or a letter as a plain
-        // character, and we treat #$foo as a literal # followed by the reference $foo.
-        // But the # is its own ConstantExpressionNode; we don't try to merge it with adjacent text.
-        return new ConstantExpressionNode(resourceName, lineNumber(), "#");
+      switch (c) {
+        case '#':
+          return parseLineComment();
+        case '*':
+          return parseBlockComment();
+        case '[':
+          return parseHashSquare();
+        case '{':
+          return parseDirective();
+        default:
+          if (isAsciiLetter(c)) {
+            return parseDirective();
+          } else {
+            // For consistency with Velocity, we treat # not followed by a letter or one of the
+            // characters above as a plain character, and we treat #$foo as a literal # followed by
+            // the reference $foo.
+            return parsePlainText('#');
+          }
       }
     }
     if (c == EOF) {
@@ -200,13 +254,15 @@ class Parser {
     assert c == '[';
     next();
     if (c != '[') {
-      return new ConstantExpressionNode(resourceName, lineNumber(), "#[");
+      return parsePlainText(new StringBuilder("#["));
     }
+    int startLine = lineNumber();
     next();
     StringBuilder sb = new StringBuilder();
     while (true) {
       if (c == EOF) {
-        throw parseException("Unterminated #[[ - did not see matching ]]#");
+        throw new ParseException(
+            "Unterminated #[[ - did not see matching ]]#", resourceName, startLine);
       }
       if (c == '#') {
         // This might be the last character of ]]# or it might just be a random #.
@@ -458,16 +514,37 @@ class Parser {
   }
 
   /**
-   * Parses and discards a comment, which is {@code ##} followed by any number of characters up to
-   * and including the next newline.
+   * Parses and discards a line comment, which is {@code ##} followed by any number of characters
+   * up to and including the next newline.
    */
-  private Node parseComment() throws IOException {
+  private Node parseLineComment() throws IOException {
     int lineNumber = lineNumber();
     while (c != '\n' && c != EOF) {
       next();
     }
     next();
     return new CommentTokenNode(resourceName, lineNumber);
+  }
+
+  /**
+   * Parses and discards a block comment, which is {@code #*} followed by everything up to and
+   * including the next {@code *#}.
+   */
+  private Node parseBlockComment() throws IOException {
+    assert c == '*';
+    int startLine = lineNumber();
+    int lastC = '\0';
+    next();
+    while (!(lastC == '*' && c == '#')) {
+      if (c == EOF) {
+        throw new ParseException(
+            "Unterminated #* - did not see matching *#", resourceName, startLine);
+      }
+      lastC = c;
+      next();
+    }
+    next();
+    return new CommentTokenNode(resourceName, startLine);
   }
 
   /**
@@ -478,7 +555,10 @@ class Parser {
   private Node parsePlainText(int firstChar) throws IOException {
     StringBuilder sb = new StringBuilder();
     sb.appendCodePoint(firstChar);
+    return parsePlainText(sb);
+  }
 
+  private Node parsePlainText(StringBuilder sb) throws IOException {
     literal:
     while (true) {
       switch (c) {
@@ -508,7 +588,27 @@ class Parser {
    *
    * <p>On entry to this method, {@link #c} is the character immediately after the {@code $}.
    */
-  private ReferenceNode parseReference() throws IOException {
+  private Node parseReference() throws IOException {
+    if (c == '{') {
+      next();
+      if (!isAsciiLetter(c)) {
+        return parsePlainText(new StringBuilder("${"));
+      }
+      ReferenceNode node = parseReferenceNoBrace();
+      expect('}');
+      return node;
+    } else {
+      return parseReferenceNoBrace();
+    }
+  }
+
+  /**
+   * Same as {@link #parseReference()}, except it really must be a reference. A {@code $} in
+   * normal text doesn't start a reference if it is not followed by an identifier. But in an
+   * expression, for example in {@code #if ($x == 23)}, {@code $} must be followed by an
+   * identifier.
+   */
+  private ReferenceNode parseRequiredReference() throws IOException {
     if (c == '{') {
       next();
       ReferenceNode node = parseReferenceNoBrace();
@@ -568,6 +668,11 @@ class Parser {
   private ReferenceNode parseReferenceMember(ReferenceNode lhs) throws IOException {
     assert c == '.';
     next();
+    if (!isAsciiLetter(c)) {
+      // We've seen something like `$foo.!`, so it turns out it's not a member after all.
+      pushback('.');
+      return lhs;
+    }
     String id = parseId("Member");
     ReferenceNode reference;
     if (c == '(') {
@@ -670,19 +775,15 @@ class Parser {
    * Maps a code point to the operators that begin with that code point. For example, maps
    * {@code <} to {@code LESS} and {@code LESS_OR_EQUAL}.
    */
-  private static final Map<Integer, List<Operator>> CODE_POINT_TO_OPERATORS;
+  private static final ImmutableListMultimap<Integer, Operator> CODE_POINT_TO_OPERATORS;
   static {
-    Map<Integer, List<Operator>> map = new HashMap<>();
+    ImmutableListMultimap.Builder<Integer, Operator> builder = ImmutableListMultimap.builder();
     for (Operator operator : Operator.values()) {
       if (operator != Operator.STOP) {
-        Integer key = operator.symbol.codePointAt(0);
-        if (!map.containsKey(key)) {
-          map.put(key, new ArrayList<Operator>());
-        }
-        map.get(key).add(operator);
+        builder.put((int) operator.symbol.charAt(0), operator);
       }
     }
-    CODE_POINT_TO_OPERATORS = Collections.unmodifiableMap(map);
+    CODE_POINT_TO_OPERATORS = builder.build();
   }
 
   /**
@@ -753,17 +854,17 @@ class Parser {
      */
     private void nextOperator() throws IOException {
       skipSpace();
-      List<Operator> possibleOperators = CODE_POINT_TO_OPERATORS.get(c);
-      if (possibleOperators == null) {
+      ImmutableList<Operator> possibleOperators = CODE_POINT_TO_OPERATORS.get(c);
+      if (possibleOperators.isEmpty()) {
         currentOperator = Operator.STOP;
         return;
       }
-      int firstChar = c;
+      char firstChar = Chars.checkedCast(c);
       next();
       Operator operator = null;
       for (Operator possibleOperator : possibleOperators) {
         if (possibleOperator.symbol.length() == 1) {
-          assert operator == null;
+          Verify.verify(operator == null);
           operator = possibleOperator;
         } else if (possibleOperator.symbol.charAt(1) == c) {
           next();
@@ -771,7 +872,8 @@ class Parser {
         }
       }
       if (operator == null) {
-        throw parseException("Expected " + possibleOperators.get(0) + ", not just " + firstChar);
+        throw parseException(
+            "Expected " + Iterables.getOnlyElement(possibleOperators) + ", not just " + firstChar);
       }
       currentOperator = operator;
     }
@@ -818,7 +920,7 @@ class Parser {
     ExpressionNode node;
     if (c == '$') {
       next();
-      node = parseReference();
+      node = parseRequiredReference();
     } else if (c == '"') {
       node = parseStringLiteral();
     } else if (c == '-') {
@@ -869,10 +971,8 @@ class Parser {
       sb.appendCodePoint(c);
       next();
     }
-    int value;
-    try {
-      value = Integer.parseInt(sb.toString());
-    } catch (NumberFormatException e) {
+    Integer value = Ints.tryParse(sb.toString());
+    if (value == null) {
       throw parseException("Invalid integer: " + sb);
     }
     return new ConstantExpressionNode(resourceName, lineNumber(), value);
@@ -896,29 +996,31 @@ class Parser {
     return new ConstantExpressionNode(resourceName, lineNumber(), value);
   }
 
-  private static final ImmutableAsciiSet ASCII_LETTER =
-      ImmutableAsciiSet.ofRange('A', 'Z')
-          .union(ImmutableAsciiSet.ofRange('a', 'z'));
+  private static final CharMatcher ASCII_LETTER =
+      CharMatcher.inRange('A', 'Z')
+          .or(CharMatcher.inRange('a', 'z'))
+          .precomputed();
 
-  private static final ImmutableAsciiSet ASCII_DIGIT =
-      ImmutableAsciiSet.ofRange('0', '9');
+  private static final CharMatcher ASCII_DIGIT =
+      CharMatcher.inRange('0', '9')
+          .precomputed();
 
-  private static final ImmutableAsciiSet ID_CHAR =
+  private static final CharMatcher ID_CHAR =
       ASCII_LETTER
-          .union(ASCII_DIGIT)
-          .union(ImmutableAsciiSet.of('-'))
-          .union(ImmutableAsciiSet.of('_'));
+          .or(ASCII_DIGIT)
+          .or(CharMatcher.anyOf("-_"))
+          .precomputed();
 
   private static boolean isAsciiLetter(int c) {
-    return ASCII_LETTER.contains(c);
+    return (char) c == c && ASCII_LETTER.matches((char) c);
   }
 
   private static boolean isAsciiDigit(int c) {
-    return ASCII_DIGIT.contains(c);
+    return (char) c == c && ASCII_DIGIT.matches((char) c);
   }
 
   private static boolean isIdChar(int c) {
-    return ID_CHAR.contains(c);
+    return (char) c == c && ID_CHAR.matches((char) c);
   }
 
   /**

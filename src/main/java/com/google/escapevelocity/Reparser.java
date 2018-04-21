@@ -11,6 +11,25 @@
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
  */
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package com.google.escapevelocity;
 
 import static com.google.escapevelocity.Node.emptyNode;
@@ -29,6 +48,10 @@ import com.google.escapevelocity.TokenNode.IfOrElseIfTokenNode;
 import com.google.escapevelocity.TokenNode.IfTokenNode;
 import com.google.escapevelocity.TokenNode.MacroDefinitionTokenNode;
 import com.google.escapevelocity.TokenNode.NestedTokenNode;
+import com.google.common.base.CharMatcher;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -67,7 +90,7 @@ class Reparser {
   private final Map<String, Macro> macros;
 
   Reparser(ImmutableList<Node> nodes) {
-    this(nodes, new TreeMap<String, Macro>());
+    this(nodes, new TreeMap<>());
   }
 
   private Reparser(ImmutableList<Node> nodes, Map<String, Macro> macros) {
@@ -94,7 +117,7 @@ class Reparser {
    * ({@code $x} or {@code $x.foo} etc); a macro definition; or another {@code #set}.
    */
   private static ImmutableList<Node> removeSpaceBeforeSet(ImmutableList<Node> nodes) {
-    assert nodes.get(nodes.size() - 1) instanceof EofNode : nodes.get(nodes.size() - 1);
+    assert Iterables.getLast(nodes) instanceof EofNode;
     // Since the last node is EofNode, the i + 1 and i + 2 accesses below are safe.
     ImmutableList.Builder<Node> newNodes = ImmutableList.builder();
     for (int i = 0; i < nodes.size(); i++) {
@@ -120,18 +143,7 @@ class Reparser {
   private static boolean isWhitespaceLiteral(Node node) {
     if (node instanceof ConstantExpressionNode) {
       Object constant = node.evaluate(null);
-      if (constant instanceof String) {
-        String s = (String) constant;
-        int i = 0;
-        while (i < s.length()) {
-          int c = s.codePointAt(i);
-          if (!Character.isWhitespace(c)) {
-            return false;
-          }
-          i += Character.charCount(c);
-        }
-        return true;
-      }
+      return constant instanceof String && CharMatcher.whitespace().matchesAllOf((String) constant);
     }
     return false;
   }

@@ -11,14 +11,35 @@
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
  */
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package com.google.escapevelocity;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.common.primitives.Primitives;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -227,13 +248,11 @@ abstract class ReferenceNode extends ExpressionNode {
           throw evaluationException(
               "Parameters for method " + id + " have wrong types: " + argValues);
         case 1:
-          return invokeMethod(compatibleMethods.get(0), lhsValue, argValues);
+          return invokeMethod(Iterables.getOnlyElement(compatibleMethods), lhsValue, argValues);
         default:
-          StringBuilder error = new StringBuilder("Ambiguous method invocation, could be one of:");
-          for (Method method : compatibleMethods) {
-            error.append("\n  ").append(method);
-          }
-          throw evaluationException(error.toString());
+          throw evaluationException(
+              "Ambiguous method invocation, could be one of:\n  "
+              + Joiner.on("\n  ").join(compatibleMethods));
       }
     }
 
@@ -258,29 +277,11 @@ abstract class ReferenceNode extends ExpressionNode {
       return true;
     }
 
-    private static final Map<Class<?>, Class<?>> BOXED_TO_UNBOXED;
-    static {
-      Map<Class<?>, Class<?>> map = new HashMap<>();
-      map.put(Byte.class, byte.class);
-      map.put(Short.class, short.class);
-      map.put(Integer.class, int.class);
-      map.put(Long.class, long.class);
-      map.put(Float.class, float.class);
-      map.put(Double.class, double.class);
-      map.put(Character.class, char.class);
-      map.put(Boolean.class, boolean.class);
-      BOXED_TO_UNBOXED = Collections.unmodifiableMap(map);
-    }
-
     private static boolean primitiveIsCompatible(Class<?> primitive, Object value) {
-      if (value == null) {
+      if (value == null || !Primitives.isWrapperType(value.getClass())) {
         return false;
       }
-      Class<?> unboxed = BOXED_TO_UNBOXED.get(value.getClass());
-      if (unboxed == null) {
-        return false;
-      }
-      return primitiveTypeIsAssignmentCompatible(primitive, unboxed);
+      return primitiveTypeIsAssignmentCompatible(primitive, Primitives.unwrap(value.getClass()));
     }
 
     private static final ImmutableList<Class<?>> NUMERICAL_PRIMITIVES = ImmutableList.<Class<?>>of(
