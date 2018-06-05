@@ -26,6 +26,14 @@
     A reimplementation of a subset of the Apache Velocity templating system.
   </description>
 
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
   <scm>
     <url>http://github.com/google/escapevelocity</url>
     <connection>scm:git:git://github.com/google/escapevelocity.git</connection>
