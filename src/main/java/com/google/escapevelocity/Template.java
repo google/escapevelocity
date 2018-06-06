@@ -37,7 +37,7 @@ public class Template {
    *
    * <p>Here is an example that opens nested templates as resources relative to the calling class:
    *
-   * <pre>
+   * <pre>{@code
    *   ResourceOpener resourceOpener = resourceName -> {
    *     InputStream inputStream = getClass().getResource(resourceName);
    *     if (inputStream == null) {
@@ -45,22 +45,31 @@ public class Template {
    *     }
    *     return new BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8));
    *   };
-   * </pre>
+   * }</pre>
    */
   @FunctionalInterface
   public interface ResourceOpener {
 
     /**
-     * Returns a Reader that will be used to read the given resource, then closed.
+     * Returns a {@code Reader} that will be used to read the given resource, then closed.
      *
      * @param resourceName the name of the resource to be read. This will never be null.
+     * @return a {@code Reader} for the resource.
+     * @throws IOException if the resource cannot be opened.
      */
     Reader openResource(String resourceName) throws IOException;
   }
 
   /**
-   * Parses a VTL template from the given {@code Reader}. The given Reader will be closed on
-   * return from this method.
+   * Parses a VTL template from the given {@code Reader}. The template cannot reference other
+   * templates (for example with {@code #parse}). For that, use
+   * {@link #parseFrom(String, ResourceOpener)}.
+   *
+   * @param reader a Reader that will supply the text of the template. It will be closed on return
+   *     from this method.
+   * @return an object representing the parsed template.
+   * @throws IOException if there is an exception reading from {@code reader}, or if the template
+   *     references another template via {@code #parse}.
    */
   public static Template parseFrom(Reader reader) throws IOException {
     ResourceOpener resourceOpener = resourceName -> {
@@ -81,8 +90,10 @@ public class Template {
    * Parse a VTL template of the given name using the given {@code ResourceOpener}.
    *
    * @param resourceName name of the resource. May be null.
-   * @param resourceOpener used to open included files for {@code #parse} directives in the
-   *     template.
+   * @param resourceOpener used to open the initial resource and resources referenced by
+   *     {@code #parse} directives in the template.
+   * @return an object representing the parsed template.
+   * @throws IOException if there is an exception opening or reading from any resource.
    */
   public static Template parseFrom(
       String resourceName, ResourceOpener resourceOpener) throws IOException {
