@@ -15,16 +15,18 @@
  */
 package com.google.escapevelocity;
 
+import static java.util.stream.Collectors.toList;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Primitives;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A node in the parse tree that is a reference. A reference is anything beginning with {@code $},
@@ -89,21 +91,27 @@ abstract class ReferenceNode extends ExpressionNode {
       if (lhsValue == null) {
         throw evaluationException("Cannot get member " + id + " of null value");
       }
+      // If this is a Map, then Velocity looks up the property in the map.
+      if (lhsValue instanceof Map<?, ?>) {
+        Map<?, ?> map = (Map<?, ?>) lhsValue;
+        return map.get(id);
+      }
       // Velocity specifies that, given a reference .foo, it will first look for getfoo() and then
       // for getFoo(), and likewise given .Foo it will look for getFoo() and then getfoo().
       for (String prefix : PREFIXES) {
         for (boolean changeCase : CHANGE_CASE) {
           String baseId = changeCase ? changeInitialCase(id) : id;
           String methodName = prefix + baseId;
-          Method method;
-          try {
-            method = lhsValue.getClass().getMethod(methodName);
+          Optional<Method> maybeMethod =
+              context.publicMethodsWithName(lhsValue.getClass(), methodName).stream()
+                  .filter(m -> m.getParameterTypes().length == 0)
+                  .findFirst();
+          if (maybeMethod.isPresent()) {
+            Method method = maybeMethod.get();
             if (!prefix.equals("is") || method.getReturnType().equals(boolean.class)) {
               // Don't consider methods that happen to be called isFoo() but don't return boolean.
               return invokeMethod(method, lhsValue, ImmutableList.of());
             }
-          } catch (NoSuchMethodException e) {
-            // Continue with next possibility
           }
         }
       }
@@ -206,25 +214,35 @@ abstract class ReferenceNode extends ExpressionNode {
       if (lhsValue == null) {
         throw evaluationException("Cannot invoke method " + id + " on null value");
       }
-      List<Object> argValues = new ArrayList<>();
-      for (ExpressionNode arg : args) {
-        argValues.add(arg.evaluate(context));
-      }
-      List<Method> methodsWithName = new ArrayList<>();
-      for (Method method : lhsValue.getClass().getMethods()) {
-        if (method.getName().equals(id) && !method.isSynthetic()) {
-          methodsWithName.add(method);
+      try {
+        return evaluate(context, lhsValue, lhsValue.getClass());
+      } catch (EvaluationException e) {
+        // If this is a Class, try invoking a static method of the class it refers to.
+        // This is what Apache Velocity does. If the method exists as both an instance method of
+        // Class and a static method of the referenced class, then it is the instance method of
+        // Class that wins, again consistent with Velocity.
+        if (lhsValue instanceof Class<?>) {
+          return evaluate(context, null, (Class<?>) lhsValue);
         }
+        throw e;
       }
-      if (methodsWithName.isEmpty()) {
-        throw evaluationException("No method " + id + " in " + lhsValue.getClass().getName());
+    }
+
+    private Object evaluate(EvaluationContext context, Object lhsValue, Class<?> targetClass) {
+      List<Object> argValues = args.stream()
+          .map(arg -> arg.evaluate(context))
+          .collect(toList());
+      ImmutableSet<Method> publicMethodsWithName = context.publicMethodsWithName(targetClass, id);
+      if (publicMethodsWithName.isEmpty()) {
+        throw evaluationException("No method " + id + " in " + targetClass.getName());
       }
-      List<Method> compatibleMethods = new ArrayList<>();
-      for (Method method : methodsWithName) {
-        // TODO(emcmanus): support varargs, if it's useful
-        if (compatibleArgs(method.getParameterTypes(), argValues)) {
-          compatibleMethods.add(method);
-        }
+      List<Method> compatibleMethods = publicMethodsWithName.stream()
+          .filter(method -> compatibleArgs(method.getParameterTypes(), argValues))
+          .collect(toList());
+          // TODO(emcmanus): support varargs, if it's useful
+      if (compatibleMethods.size() > 1) {
+        compatibleMethods =
+            compatibleMethods.stream().filter(method -> !method.isSynthetic()).collect(toList());
       }
       switch (compatibleMethods.size()) {
         case 0:
@@ -253,7 +271,7 @@ abstract class ReferenceNode extends ExpressionNode {
         Object argValue = argValues.get(i);
         if (paramType.isPrimitive()) {
           return primitiveIsCompatible(paramType, argValue);
-        } else if (!paramType.isInstance(argValue)) {
+        } else if (argValue != null && !paramType.isInstance(argValue)) {
           return false;
         }
       }
@@ -267,7 +285,7 @@ abstract class ReferenceNode extends ExpressionNode {
       return primitiveTypeIsAssignmentCompatible(primitive, Primitives.unwrap(value.getClass()));
     }
 
-    private static final ImmutableList<Class<?>> NUMERICAL_PRIMITIVES = ImmutableList.<Class<?>>of(
+    private static final ImmutableList<Class<?>> NUMERICAL_PRIMITIVES = ImmutableList.of(
         byte.class, short.class, int.class, long.class, float.class, double.class);
     private static final int INDEX_OF_INT = NUMERICAL_PRIMITIVES.indexOf(int.class);
 
@@ -300,21 +318,9 @@ abstract class ReferenceNode extends ExpressionNode {
   }
 
   /**
-   * Invoke the given method on the given target with the given arguments. The method is expected
-   * to be public, but the class it is in might not be. In that case we will search up the
-   * hierarchy for an ancestor that is public and has the same method, and use that to invoke the
-   * method. Otherwise we would get an {@link IllegalAccessException}. More than one ancestor might
-   * define the method, but it doesn't matter which one we invoke since ultimately the code that
-   * will run will be the same.
+   * Invoke the given method on the given target with the given arguments.
    */
   Object invokeMethod(Method method, Object target, List<Object> argValues) {
-    if (!classIsPublic(target.getClass())) {
-      method = visibleMethod(method, target.getClass());
-      if (method == null) {
-        throw evaluationException(
-            "Method is not visible in class " + target.getClass().getName() + ": " + method);
-      }
-    }
     try {
       return method.invoke(target, argValues.toArray());
     } catch (InvocationTargetException e) {
@@ -322,99 +328,5 @@ abstract class ReferenceNode extends ExpressionNode {
     } catch (Exception e) {
       throw evaluationException(e);
     }
-  }
-
-  private static String packageNameOf(Class<?> c) {
-    String name = c.getName();
-    int lastDot = name.lastIndexOf('.');
-    if (lastDot > 0) {
-      return name.substring(0, lastDot);
-    } else {
-      return "";
-    }
-  }
-
-  private static final String THIS_PACKAGE = packageNameOf(Node.class) + ".";
-
-  /**
-   * Returns a Method with the same name and parameter types as the given one, but that is in a
-   * public class or interface. This might be the given method, or it might be a method in a
-   * superclass or superinterface.
-   *
-   * @return a public method in a public class or interface, or null if none was found.
-   */
-  static Method visibleMethod(Method method, Class<?> in) {
-    if (in == null) {
-      return null;
-    }
-    Method methodInClass;
-    try {
-      methodInClass = in.getMethod(method.getName(), method.getParameterTypes());
-    } catch (NoSuchMethodException e) {
-      return null;
-    }
-    if (classIsPublic(in) || in.getName().startsWith(THIS_PACKAGE)) {
-      // The second disjunct is a hack to allow us to use the methods of $foreach without having
-      // to make the ForEachVar class public. We can invoke those methods from here since they
-      // are in the same package.
-      return methodInClass;
-    }
-    Method methodSuper = visibleMethod(method, in.getSuperclass());
-    if (methodSuper != null) {
-      return methodSuper;
-    }
-    for (Class<?> intf : in.getInterfaces()) {
-      Method methodIntf = visibleMethod(method, intf);
-      if (methodIntf != null) {
-        return methodIntf;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Returns whether the given class is public as seen from this class. Prior to Java 9, a class
-   * was either public or not public. But with the introduction of modules in Java 9, a class can
-   * be marked public and yet not be visible, if it is not exported from the module it appears in.
-   * So, on Java 9, we perform an additional check on class {@code c}, which is effectively
-   * {@code c.getModule().isExported(c.getPackageName())}. We use reflection so that the code can
-   * compile on earlier Java versions.
-   */
-  private static boolean classIsPublic(Class<?> c) {
-    if (!Modifier.isPublic(c.getModifiers())) {
-      return false;
-    }
-    if (CLASS_GET_MODULE_METHOD != null) {
-      return classIsExported(c);
-    }
-    return true;
-  }
-
-  private static boolean classIsExported(Class<?> c) {
-    try {
-      String pkg = packageNameOf(c);
-      Object module = CLASS_GET_MODULE_METHOD.invoke(c);
-      return (Boolean) MODULE_IS_EXPORTED_METHOD.invoke(module, pkg);
-    } catch (Exception e) {
-      return false;
-    }
-  }
-
-  private static final Method CLASS_GET_MODULE_METHOD;
-  private static final Method MODULE_IS_EXPORTED_METHOD;
-
-  static {
-    Method classGetModuleMethod;
-    Method moduleIsExportedMethod;
-    try {
-      classGetModuleMethod = Class.class.getMethod("getModule");
-      Class<?> moduleClass = classGetModuleMethod.getReturnType();
-      moduleIsExportedMethod = moduleClass.getMethod("isExported", String.class);
-    } catch (Exception e) {
-      classGetModuleMethod = null;
-      moduleIsExportedMethod = null;
-    }
-    CLASS_GET_MODULE_METHOD = classGetModuleMethod;
-    MODULE_IS_EXPORTED_METHOD = moduleIsExportedMethod;
   }
 }

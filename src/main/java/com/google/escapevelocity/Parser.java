@@ -15,6 +15,13 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.base.CharMatcher;
+import com.google.common.base.Verify;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.Iterables;
+import com.google.common.primitives.Chars;
+import com.google.common.primitives.Ints;
 import com.google.escapevelocity.DirectiveNode.SetNode;
 import com.google.escapevelocity.ExpressionNode.BinaryExpressionNode;
 import com.google.escapevelocity.ExpressionNode.NotExpressionNode;
@@ -31,13 +38,6 @@ import com.google.escapevelocity.TokenNode.ForEachTokenNode;
 import com.google.escapevelocity.TokenNode.IfTokenNode;
 import com.google.escapevelocity.TokenNode.MacroDefinitionTokenNode;
 import com.google.escapevelocity.TokenNode.NestedTokenNode;
-import com.google.common.base.CharMatcher;
-import com.google.common.base.Verify;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableListMultimap;
-import com.google.common.collect.Iterables;
-import com.google.common.primitives.Chars;
-import com.google.common.primitives.Ints;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.Reader;
@@ -419,10 +419,11 @@ class Parser {
   private Node parseParse() throws IOException {
     expect('(');
     skipSpace();
-    if (c != '"') {
+    if (c != '"' && c != '\'') {
       throw parseException("#parse only supported with string literal argument");
     }
-    String nestedResourceName = readStringLiteral();
+    ExpressionNode nestedResourceNameExpression = parseStringLiteral(c, false);
+    String nestedResourceName = nestedResourceNameExpression.evaluate(null).toString();
     expect(')');
     try (Reader nestedReader = resourceOpener.openResource(nestedResourceName)) {
       Parser nestedParser = new Parser(nestedReader, nestedResourceName, resourceOpener);
@@ -438,7 +439,7 @@ class Parser {
    *                           $<id> <macro-parameter-list>
    * }</pre>
    *
-   * <p>Macro parameters are not separated by commas, though method-reference parameters are.
+   * <p>Macro parameters are optionally separated by commas.
    */
   private Node parseMacroDefinition() throws IOException {
     expect('(');
@@ -450,6 +451,10 @@ class Parser {
       if (c == ')') {
         next();
         break;
+      }
+      if (c == ',') {
+        next();
+        skipSpace();
       }
       if (c != '$') {
         throw parseException("Macro parameters should look like $name");
@@ -518,15 +523,12 @@ class Parser {
     int startLine = lineNumber();
     int lastC = '\0';
     next();
-    while (!(lastC == '*' && c == '#')) {
-      if (c == EOF) {
-        throw new ParseException(
-            "Unterminated #* - did not see matching *#", resourceName, startLine);
-      }
+    // Consistently with Velocity, we do not make it an error if a #* comment is not closed.
+    while (!(lastC == '*' && c == '#') && c != EOF) {
       lastC = c;
       next();
     }
-    next();
+    next(); // this may read EOF twice, which works
     return new CommentTokenNode(resourceName, startLine);
   }
 
@@ -889,7 +891,6 @@ class Parser {
     }
   }
 
-
   /**
    * Parses an expression containing only literals or references.
    * <pre>{@code
@@ -905,7 +906,9 @@ class Parser {
       next();
       node = parseRequiredReference();
     } else if (c == '"') {
-      node = parseStringLiteral();
+      node = parseStringLiteral(c, true);
+    } else if (c == '\'') {
+      node = parseStringLiteral(c, false);
     } else if (c == '-') {
       // Velocity does not have a negation operator. If we see '-' it must be the start of a
       // negative integer literal.
@@ -922,30 +925,73 @@ class Parser {
     return node;
   }
 
-  private ExpressionNode parseStringLiteral() throws IOException {
-    return new ConstantExpressionNode(resourceName, lineNumber(), readStringLiteral());
-  }
-
-  private String readStringLiteral() throws IOException {
-    assert c == '"';
-    StringBuilder sb = new StringBuilder();
+  /**
+   * Parses a string literal, which may contain references to be expanded. Examples are
+   * {@code "foo"} or {@code "foo${bar}baz"}.
+   * <pre>{@code
+   * <string-literal> -> <double-quote-literal> | <single-quote-literal>
+   * <double-quote-literal> -> " <double-quote-string-contents> "
+   * <double-quote-string-contents> -> <empty> |
+   *                                   <reference> <double-quote-string-contents> |
+   *                                   <character-other-than-"> <double-quote-string-contents>
+   * <single-quote-literal> -> ' <single-quote-string-contents> '
+   * <single-quote-string-contents> -> <empty> |
+   *                                   <character-other-than-'> <single-quote-string-contents>
+   * }</pre>
+   */
+  private ExpressionNode parseStringLiteral(int quote, boolean allowReferences)
+      throws IOException {
+    assert c == quote;
     next();
-    while (c != '"') {
-      if (c == '\n' || c == EOF) {
-        throw parseException("Unterminated string constant");
+    ImmutableList.Builder<Node> nodes = ImmutableList.builder();
+    StringBuilder sb = new StringBuilder();
+    while (c != quote) {
+      switch (c) {
+        case '\n':
+        case EOF:
+          throw parseException("Unterminated string constant");
+        case '\\':
+          throw parseException(
+              "Escapes in string constants are not currently supported");
+        case '$':
+          if (allowReferences) {
+            if (sb.length() > 0) {
+              nodes.add(new ConstantExpressionNode(resourceName, lineNumber(), sb.toString()));
+              sb.setLength(0);
+            }
+            next();
+            nodes.add(parseReference());
+            break;
+          }
+          // fall through
+        default:
+          sb.appendCodePoint(c);
+          next();
       }
-      if (c == '$' || c == '\\') {
-        // In real Velocity, you can have a $ reference expanded inside a "" string literal.
-        // There are also '' string literals where that is not so. We haven't needed that yet
-        // so it's not supported.
-        throw parseException(
-            "Escapes or references in string constants are not currently supported");
-      }
-      sb.appendCodePoint(c);
-      next();
     }
     next();
-    return sb.toString();
+    if (sb.length() > 0) {
+      nodes.add(new ConstantExpressionNode(resourceName, lineNumber(), sb.toString()));
+    }
+    return new StringLiteralNode(resourceName, lineNumber(), nodes.build());
+  }
+
+  private static class StringLiteralNode extends ExpressionNode {
+    private final ImmutableList<Node> nodes;
+
+    StringLiteralNode(String resourceName, int lineNumber, ImmutableList<Node> nodes) {
+      super(resourceName, lineNumber);
+      this.nodes = nodes;
+    }
+
+    @Override
+    Object evaluate(EvaluationContext context) {
+      StringBuilder sb = new StringBuilder();
+      for (Node node : nodes) {
+        sb.append(node.evaluate(context));
+      }
+      return sb.toString();
+    }
   }
 
   private ExpressionNode parseIntLiteral(String prefix) throws IOException {

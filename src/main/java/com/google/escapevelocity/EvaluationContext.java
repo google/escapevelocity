@@ -15,6 +15,8 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.collect.ImmutableSet;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -40,11 +42,16 @@ interface EvaluationContext {
    */
   Runnable setVar(final String var, Object value);
 
+  /** See {@link MethodFinder#publicMethodsWithName}. */
+  ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name);
+
   class PlainEvaluationContext implements EvaluationContext {
     private final Map<String, Object> vars;
+    private final MethodFinder methodFinder;
 
-    PlainEvaluationContext(Map<String, ?> vars) {
-      this.vars = new TreeMap<String, Object>(vars);
+    PlainEvaluationContext(Map<String, ?> vars, MethodFinder methodFinder) {
+      this.vars = new TreeMap<>(vars);
+      this.methodFinder = methodFinder;
     }
 
     @Override
@@ -68,6 +75,11 @@ interface EvaluationContext {
       }
       vars.put(var, value);
       return undo;
+    }
+
+    @Override
+    public ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name) {
+      return methodFinder.publicMethodsWithName(startClass, name);
     }
   }
 }

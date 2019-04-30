@@ -31,6 +31,17 @@ import java.util.Map;
 // TODO(emcmanus): spell out exactly what Velocity features are unsupported.
 public class Template {
   private final Node root;
+  
+  /**
+   * Caches {@link Method} objects for public methods accessed through references. The first time
+   * we evaluate {@code $var.property} or {@code $var.method(...)} for a {@code $var} of a given
+   * class and for a given property or method signature, we'll store the resultant {@link Method}
+   * object. Every subsequent time we'll reuse that {@link Method}. The method lookup is quite slow
+   * so caching is useful. The main downside is that we may potentially hold on to {@link Method}
+   * objects that will never be used with this {@link Template} again. But in practice templates
+   * tend to be used repeatedly with the same classes.
+   */
+  private final MethodFinder methodFinder = new MethodFinder();
 
   /**
    * Used to resolve references to resources in the template, through {@code #parse} directives.
@@ -116,7 +127,7 @@ public class Template {
    * @return the string result of evaluating the template.
    */
   public String evaluate(Map<String, ?> vars) {
-    EvaluationContext evaluationContext = new PlainEvaluationContext(vars);
+    EvaluationContext evaluationContext = new PlainEvaluationContext(vars, methodFinder);
     return String.valueOf(root.evaluate(evaluationContext));
   }
 }

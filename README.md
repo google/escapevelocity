@@ -14,9 +14,6 @@ the exact same string that Velocity produces. If not, that is a bug.
 EscapeVelocity has no facilities for HTML escaping and it is not appropriate for producing
 HTML output that might include portions of untrusted input.
 
-<!-- MOE:begin_strip -->
-[TOC]
-<!-- MOE:end_strip -->
 
 ## Motivation
 

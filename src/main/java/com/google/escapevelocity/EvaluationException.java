@@ -29,6 +29,6 @@ public class EvaluationException extends RuntimeException {
   }
 
   EvaluationException(String message, Throwable cause) {
-    super(cause);
+    super(message, cause);
   }
 }
