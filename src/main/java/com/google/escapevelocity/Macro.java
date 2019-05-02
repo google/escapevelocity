@@ -17,10 +17,11 @@ package com.google.escapevelocity;
 
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-
 
 /**
  * A macro definition. Macros appear in templates using the syntax {@code #macro (m $x $y) ... #end}
@@ -130,6 +131,11 @@ class Macro {
           parameterThunks.put(var, thunk);
         };
       }
+    }
+
+    @Override
+    public ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name) {
+      return originalEvaluationContext.publicMethodsWithName(startClass, name);
     }
   }
 }

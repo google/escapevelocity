@@ -17,15 +17,11 @@ package com.google.escapevelocity;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.escapevelocity.ReferenceNode.MethodReferenceNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Primitives;
 import com.google.common.truth.Expect;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.Collections;
-import java.util.Map;
+import com.google.escapevelocity.ReferenceNode.MethodReferenceNode;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -85,19 +81,9 @@ public class ReferenceNodeTest {
             MethodReferenceNode.primitiveTypeIsAssignmentCompatible(to, from);
         expect
             .withMessage(from + " assignable to " + to)
-            .that(expected).isEqualTo(actual);
+            .that(actual).isEqualTo(expected);
       }
     }
-  }
-
-  @Test
-  public void testVisibleMethod() throws Exception {
-    Map<String, String> map = Collections.singletonMap("foo", "bar");
-    Class<?> mapClass = map.getClass();
-    assertThat(Modifier.isPublic(mapClass.getModifiers())).isFalse();
-    Method size = map.getClass().getMethod("size");
-    Method visibleSize = ReferenceNode.visibleMethod(size, mapClass);
-    assertThat(visibleSize.invoke(map)).isEqualTo(1);
   }
 
   @Test

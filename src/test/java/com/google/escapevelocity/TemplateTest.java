@@ -16,10 +16,12 @@
 package com.google.escapevelocity;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.fail;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.truth.Expect;
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -27,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +39,7 @@ import java.util.function.Supplier;
 import org.apache.commons.collections.ExtendedProperties;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.exception.ResourceNotFoundException;
+import org.apache.velocity.exception.VelocityException;
 import org.apache.velocity.runtime.RuntimeConstants;
 import org.apache.velocity.runtime.RuntimeInstance;
 import org.apache.velocity.runtime.log.NullLogChute;
@@ -45,7 +49,6 @@ import org.apache.velocity.runtime.resource.loader.ResourceLoader;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -57,7 +60,6 @@ import org.junit.runners.JUnit4;
 public class TemplateTest {
   @Rule public TestName testName = new TestName();
   @Rule public Expect expect = Expect.create();
-  @Rule public ExpectedException thrown = ExpectedException.none();
 
   private RuntimeInstance velocityRuntimeInstance;
 
@@ -126,6 +128,31 @@ public class TemplateTest {
         velocityContext, writer, parsedTemplate.getTemplateName(), parsedTemplate);
     assertThat(rendered).isTrue();
     return writer.toString();
+  }
+
+  private void expectParseException(
+      String template,
+      String expectedMessageSubstring) {
+    Exception velocityException = null;
+    try {
+      SimpleNode parsedTemplate =
+          velocityRuntimeInstance.parse(new StringReader(template), testName.getMethodName());
+      VelocityContext velocityContext = new VelocityContext(new TreeMap<>());
+      velocityRuntimeInstance.render(
+          velocityContext, new StringWriter(), parsedTemplate.getTemplateName(), parsedTemplate);
+      fail("Velocity did not throw an exception for this template");
+    } catch (org.apache.velocity.runtime.parser.ParseException | VelocityException expected) {
+      velocityException = expected;
+    }
+    try {
+      Template.parseFrom(new StringReader(template));
+      fail("Velocity generated an exception, but EscapeVelocity did not: " + velocityException);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    } catch (ParseException expected) {
+      assertWithMessage("Got expected exception, but message did not match")
+          .that(expected).hasMessageThat().contains(expectedMessageSubstring);
+    }
   }
 
   @Test
@@ -210,13 +237,6 @@ public class TemplateTest {
     compare("$foo.!", ImmutableMap.of("foo", false));
   }
 
-  /* TODO(emcmanus): make this work.
-  @Test
-  public void substituteNotPropertyId() {
-    compare("$foo.!", ImmutableMap.of("foo", false));
-  }
-  */
-
   @Test
   public void substituteNestedProperty() {
     compare("\n$t.name.empty\n", ImmutableMap.of("t", Thread.currentThread()));
@@ -228,8 +248,19 @@ public class TemplateTest {
   }
 
   @Test
+  public void substituteMethodNoArgsSyntheticOverride() {
+    compare("<$c.isEmpty()>", ImmutableMap.of("c", ImmutableSetMultimap.of()));
+  }
+
+  @Test
   public void substituteMethodOneArg() {
     compare("<$list.get(0)>", ImmutableMap.of("list", ImmutableList.of("foo")));
+  }
+
+  @Test
+  public void substituteMethodOneNullArg() {
+    // This should evaluate map.containsKey(map.get("absent")), which is map.containsKey(null).
+    compare("<$map.containsKey($map.get(\"absent\"))>", ImmutableMap.of("map", ImmutableMap.of()));
   }
 
   @Test
@@ -238,10 +269,40 @@ public class TemplateTest {
   }
 
   @Test
-  public void substituteMethodNoSynthetic() {
+  public void substituteMethodSyntheticOverloads() {
     // If we aren't careful, we'll see both the inherited `Set<K> keySet()` from Map
     // and the overridden `ImmutableSet<K> keySet()` in ImmutableMap.
     compare("$map.keySet()", ImmutableMap.of("map", ImmutableMap.of("foo", "bar")));
+  }
+
+  @Test
+  public void substituteStaticMethod() {
+    compare("$Integer.toHexString(23)", ImmutableMap.of("Integer", Integer.class));
+  }
+
+  @Test
+  public void substituteStaticMethodAsInstanceMethod() {
+    compare("$i.toHexString(23)", ImmutableMap.of("i", 0));
+  }
+
+  @Test
+  public void substituteClassMethod() {
+    // This is Class.getName().
+    compare("$Integer.getName()", ImmutableMap.of("Integer", Integer.class));
+  }
+
+  /** See {@link #substituteClassOrInstanceMethod}. */
+  public static class GetName {
+    public static String getName() {
+      return "Noddy";
+    }
+  }
+
+  @Test
+  public void substituteClassOrInstanceMethod() {
+    // If the method exists as both an instance method on Class and a static method on the named
+    // class, it's the instance method that wins, so this is still Class.getName().
+    compare("$GetName.getName()", ImmutableMap.of("GetName", GetName.class));
   }
 
   @Test
@@ -252,6 +313,14 @@ public class TemplateTest {
   @Test
   public void substituteIndexWithBraces() {
     compare("<${map[\"x\"]}>", ImmutableMap.of("map", ImmutableMap.of("x", "y")));
+  }
+
+  // Velocity allows you to write $map.foo instead of $map["foo"].
+  @Test
+  public void substituteMapProperty() {
+    compare("$map.foo", ImmutableMap.of("map", ImmutableMap.of("foo", "bar")));
+    // $map.empty is always equivalent to $map["empty"], never Map.isEmpty().
+    compare("$map.empty", ImmutableMap.of("map", ImmutableMap.of("empty", "foo")));
   }
 
   @Test
@@ -288,6 +357,29 @@ public class TemplateTest {
   public void substituteExoticIndex() {
     // Any class with a get(X) method can be used with $x[i]
     compare("<$x[\"foo\"]>", ImmutableMap.of("x", new Indexable()));
+  }
+
+  @Test
+  public void substituteInString() {
+    String template =
+        "#foreach ($a in $list)"
+            + "#set ($s = \"THING_${foreach.index}\")"
+            + "$s,$s;"
+            + "#end";
+    compare(template, ImmutableMap.of("list", ImmutableList.of(1, 2, 3)));
+    compare("#set ($s = \"$x\") <$s>", ImmutableMap.of("x", "fred"));
+    compare("#set ($s = \"==$x$y\") <$s>", ImmutableMap.of("x", "fred", "y", "jim"));
+    compare("#set ($s = \"$x$y==\") <$s>", ImmutableMap.of("x", "fred", "y", "jim"));
+  }
+
+  @Test
+  public void stringOperationsOnSubstitution() {
+    compare("#set ($s = \"a${b}c\") $s.length()", ImmutableMap.of("b", 23));
+  }
+
+  @Test
+  public void singleQuoteNoSubstitution() {
+    compare("#set ($s = 'a${b}c') x${s}y", ImmutableMap.of("b", 23));
   }
 
   @Test
@@ -506,6 +598,18 @@ public class TemplateTest {
   }
 
   @Test
+  public void forEachIndex() {
+    String template =
+        "#foreach ($x in $list)"
+            + "[$foreach.index]"
+            + "#foreach ($y in $list)"
+            + "($foreach.index)==$x.$y=="
+            + "#end"
+            + "#end";
+    compare(template, ImmutableMap.of("list", ImmutableList.of("blim", "blam", "blum")));
+  }
+
+  @Test
   public void setSpacing() {
     // The spacing in the output from #set is eccentric.
     compare("x#set ($x = 0)x");
@@ -543,6 +647,18 @@ public class TemplateTest {
     String template =
         "$x\n"
         + "#macro (m $x $y)\n"
+        + "  #if ($x < $y) less #else greater #end\n"
+        + "#end\n"
+        + "#m(17 23) #m(23 17) #m(17 17)\n"
+        + "$x";
+    compare(template, ImmutableMap.of("x", "tiddly"));
+  }
+
+  @Test
+  public void macroWithCommaSeparatedArgs() {
+    String template =
+        "$x\n"
+        + "#macro (m, $x, $y)\n"
         + "  #if ($x < $y) less #else greater #end\n"
         + "#end\n"
         + "#m(17 23) #m(23 17) #m(17 17)\n"
@@ -706,45 +822,36 @@ public class TemplateTest {
   }
 
   @Test
-  public void badBraceReference() throws IOException {
+  public void badBraceReference() {
     String template = "line 1\nline 2\nbar${foo.!}baz";
-    thrown.expect(ParseException.class);
-    thrown.expectMessage("Expected }, on line 3, at text starting: .!}baz");
-    Template.parseFrom(new StringReader(template));
+    expectParseException(template, "Expected }, on line 3, at text starting: .!}baz");
   }
 
   @Test
-  public void undefinedMacro() throws IOException {
+  public void undefinedMacro() {
     String template = "#oops()";
-    thrown.expect(ParseException.class);
-    thrown.expectMessage("#oops is neither a standard directive nor a macro that has been defined");
-    Template.parseFrom(new StringReader(template));
+    expectParseException(
+        template,
+        "#oops is neither a standard directive nor a macro that has been defined");
   }
 
   @Test
-  public void macroArgumentMismatch() throws IOException {
+  public void macroArgumentMismatch() {
     String template =
         "#macro (twoArgs $a $b) $a $b #end\n"
         + "#twoArgs(23)\n";
-    thrown.expect(ParseException.class);
-    thrown.expectMessage("Wrong number of arguments to #twoArgs: expected 2, got 1");
-    Template.parseFrom(new StringReader(template));
+    expectParseException(template, "Wrong number of arguments to #twoArgs: expected 2, got 1");
   }
 
   @Test
-  public void unclosedBlockQuote() throws IOException {
+  public void unclosedBlockQuote() {
     String template = "foo\nbar #[[\nblah\nblah";
-    thrown.expect(ParseException.class);
-    thrown.expectMessage("Unterminated #[[ - did not see matching ]]#, on line 2");
-    Template.parseFrom(new StringReader(template));
+    expectParseException(template, "Unterminated #[[ - did not see matching ]]#, on line 2");
   }
 
   @Test
-  public void unclosedBlockComment() throws IOException {
-    String template = "foo\nbar #*\nblah\nblah";
-    thrown.expect(ParseException.class);
-    thrown.expectMessage("Unterminated #* - did not see matching *#, on line 2");
-    Template.parseFrom(new StringReader(template));
+  public void unclosedBlockComment() {
+    compare("foo\nbar #*\nblah\nblah");
   }
 
   /**

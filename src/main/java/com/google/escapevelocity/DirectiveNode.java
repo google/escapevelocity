@@ -122,7 +122,7 @@ abstract class DirectiveNode extends Node {
       }
       Runnable undo = context.setVar(var, null);
       StringBuilder sb = new StringBuilder();
-      Iterator<?> it = iterable.iterator();
+      CountingIterator it = new CountingIterator(iterable.iterator());
       Runnable undoForEach = context.setVar("foreach", new ForEachVar(it));
       while (it.hasNext()) {
         context.setVar(var, it.next());
@@ -133,20 +133,49 @@ abstract class DirectiveNode extends Node {
       return sb.toString();
     }
 
+    private static class CountingIterator implements Iterator<Object> {
+      private final Iterator<?> iterator;
+      private int index = -1;
+
+      CountingIterator(Iterator<?> iterator) {
+        this.iterator = iterator;
+      }
+
+      @Override
+      public boolean hasNext() {
+        return iterator.hasNext();
+      }
+
+      @Override
+      public Object next() {
+        Object next = iterator.next();
+        index++;
+        return next;
+      }
+
+      int index() {
+        return index;
+      }
+    }
+
     /**
      *  This class is the type of the variable {@code $foreach} that is defined within
      * {@code #foreach} loops. Its {@link #getHasNext()} method means that we can write
-     * {@code #if ($foreach.hasNext)}.
+     * {@code #if ($foreach.hasNext)} and likewise for {@link #getIndex()}.
      */
     private static class ForEachVar {
-      private final Iterator<?> iterator;
+      private final CountingIterator iterator;
 
-      ForEachVar(Iterator<?> iterator) {
+      ForEachVar(CountingIterator iterator) {
         this.iterator = iterator;
       }
 
       public boolean getHasNext() {
         return iterator.hasNext();
+      }
+
+      public int getIndex() {
+        return iterator.index();
       }
     }
   }
