@@ -248,19 +248,20 @@ If `$allProducts` is a `List` containing the strings `oranges` and `lemons` then
 When the `#foreach` completes, the loop variable (`$product` in the example) goes back to whatever
 value it had before, or to being undefined if it was undefined before.
 
-Within the `#foreach`, a special variable `$foreach` is defined, such that you can write
-`$foreach.hasNext`, which will be true if there are more values after this one or false if this
-is the last value. For example:
+Within the `#foreach`, the special variables `$foreach` and `$index` are defined.
+
+`$foreach.hasNext` will be true if there are more values after this one or false if this
+is the last value. `$foreach.index` will be the index of the iteration.  For example:
 
 ```
-#foreach ($product in $allProducts)${product}#if ($foreach.hasNext), #end#end
+#foreach ($product in $allProducts)${foreach.index}: ${product}#if ($foreach.hasNext), #end#end
 ```
 
-This would produce the output `oranges, lemons` for the list above. (The example is scrunched up
+This would produce the output `0: oranges, 1: lemons` for the list above. (The example is scrunched up
 to avoid introducing extraneous spaces, as described in the [section](#spaces) on spaces
 below.)
 
-Velocity gives the `$foreach` variable other properties (`index` and `count`) but EscapeVelocity
+Velocity gives the `$foreach` variable other properties (`count`) but EscapeVelocity
 does not.
 
 ### Macros
