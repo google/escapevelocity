@@ -22,12 +22,45 @@ import com.google.escapevelocity.Parser.Operator;
  * specifically {@code #set}, {@code #if}, {@code #foreach}, and macro calls. Expressions can
  * also appear inside indices in references, like {@code $x[$i]}.
  *
+ * <p>Nontrivial expressions are represented by a tree of {@link ExpressionNode} objects. For
+ * example, in {@code #if ($foo.bar < 3)}, the expression {@code $foo.bar < 3} is parsed into
+ * a tree that we might describe as<pre>
+ * {@link BinaryExpressionNode}(
+ *     {@link ReferenceNode.MemberReferenceNode}(
+ *         {@link ReferenceNode.PlainReferenceNode}("foo"),
+ *         "bar"),
+ *     {@link Operator#LESS},
+ *     {@link ConstantExpressionNode}(3))
+ * </pre>
+ *
  * @author emcmanus@google.com (Éamonn McManus)
  */
 abstract class ExpressionNode extends Node {
   ExpressionNode(String resourceName, int lineNumber) {
     super(resourceName, lineNumber);
   }
+
+  @Override
+  final void render(EvaluationContext context, StringBuilder output) {
+    output.append(evaluate(context));
+  }
+
+  /**
+   * Returns the result of evaluating this node in the given context. This result may be used as
+   * part of a further operation, for example evaluating {@code 2 + 3} to 5 in order to set
+   * {@code $x} to 5 in {@code #set ($x = 2 + 3)}. Or it may be used directly as part of the
+   * template output, for example evaluating replacing {@code name} by {@code Fred} in
+   * {@code My name is $name.}.
+   *
+   * <p>This has to be an {@code Object} rather than a {@code String} (or rather than appending to
+   * a {@code StringBuilder}) because it can potentially participate in other operations. In the
+   * preceding example, the nodes representing {@code 2} and {@code 3} and the node representing
+   * {@code 2 + 3} all return {@code Integer}. As another example, in {@code #if ($foo.bar < 3)}
+   * the value {@code $foo} is itself an {@link ExpressionNode} which evaluates to the object
+   * referenced by the {@code foo} variable, and {@code $foo.bar} is another {@link ExpressionNode}
+   * that takes the value from {@code foo} and looks for the property {@code bar} in it.
+   */
+  abstract Object evaluate(EvaluationContext context);
 
   /**
    * True if evaluating this expression yields a value that is considered true by Velocity's
