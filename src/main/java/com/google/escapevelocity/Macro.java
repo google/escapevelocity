@@ -53,15 +53,15 @@ class Macro {
     return parameterNames.size();
   }
 
-  Object evaluate(EvaluationContext context, List<Node> thunks) {
+  void render(EvaluationContext context, List<ExpressionNode> thunks, StringBuilder output) {
     try {
       Verify.verify(thunks.size() == parameterNames.size(), "Argument mistmatch for %s", name);
-      Map<String, Node> parameterThunks = new LinkedHashMap<>();
+      Map<String, ExpressionNode> parameterThunks = new LinkedHashMap<>();
       for (int i = 0; i < parameterNames.size(); i++) {
         parameterThunks.put(parameterNames.get(i), thunks.get(i));
       }
       EvaluationContext newContext = new MacroEvaluationContext(parameterThunks, context);
-      return body.evaluate(newContext);
+      body.render(newContext, output);
     } catch (EvaluationException e) {
       EvaluationException newException = new EvaluationException(
           "In macro #" + name + " defined on line " + definitionLineNumber + ": " + e.getMessage());
@@ -87,18 +87,18 @@ class Macro {
    * but it has the same responsibility.
    */
   static class MacroEvaluationContext implements EvaluationContext {
-    private final Map<String, Node> parameterThunks;
+    private final Map<String, ExpressionNode> parameterThunks;
     private final EvaluationContext originalEvaluationContext;
 
     MacroEvaluationContext(
-        Map<String, Node> parameterThunks, EvaluationContext originalEvaluationContext) {
+        Map<String, ExpressionNode> parameterThunks, EvaluationContext originalEvaluationContext) {
       this.parameterThunks = parameterThunks;
       this.originalEvaluationContext = originalEvaluationContext;
     }
 
     @Override
     public Object getVar(String var) {
-      Node thunk = parameterThunks.get(var);
+      ExpressionNode thunk = parameterThunks.get(var);
       if (thunk == null) {
         return originalEvaluationContext.getVar(var);
       } else {
@@ -120,7 +120,7 @@ class Macro {
     public Runnable setVar(final String var, Object value) {
       // Copy the behaviour that #set will shadow a macro parameter, even though the Velocity peeps
       // seem to agree that that is not good.
-      final Node thunk = parameterThunks.get(var);
+      final ExpressionNode thunk = parameterThunks.get(var);
       if (thunk == null) {
         return originalEvaluationContext.setVar(var, value);
       } else {

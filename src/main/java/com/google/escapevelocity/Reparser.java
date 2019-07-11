@@ -17,6 +17,9 @@ package com.google.escapevelocity;
 
 import static com.google.escapevelocity.Node.emptyNode;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.escapevelocity.DirectiveNode.ForEachNode;
 import com.google.escapevelocity.DirectiveNode.IfNode;
 import com.google.escapevelocity.DirectiveNode.MacroCallNode;
@@ -31,10 +34,6 @@ import com.google.escapevelocity.TokenNode.IfOrElseIfTokenNode;
 import com.google.escapevelocity.TokenNode.IfTokenNode;
 import com.google.escapevelocity.TokenNode.MacroDefinitionTokenNode;
 import com.google.escapevelocity.TokenNode.NestedTokenNode;
-import com.google.common.base.CharMatcher;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -107,7 +106,7 @@ class Reparser {
       Node nodeI = nodes.get(i);
       newNodes.add(nodeI);
       if (shouldDeleteSpaceBetweenThisAndSet(nodeI)
-          && isWhitespaceLiteral(nodes.get(i + 1))
+          && nodes.get(i + 1).isWhitespace()
           && nodes.get(i + 2) instanceof SetNode) {
         // Skip the space.
         i++;
@@ -121,14 +120,6 @@ class Reparser {
         || node instanceof ReferenceNode
         || node instanceof SetNode
         || node instanceof MacroDefinitionTokenNode;
-  }
-
-  private static boolean isWhitespaceLiteral(Node node) {
-    if (node instanceof ConstantExpressionNode) {
-      Object constant = node.evaluate(null);
-      return constant instanceof String && CharMatcher.whitespace().matchesAllOf((String) constant);
-    }
-    return false;
   }
 
   /**

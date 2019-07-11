@@ -32,13 +32,16 @@ abstract class Node {
   }
 
   /**
-   * Returns the result of evaluating this node in the given context. This result may be used as
-   * part of a further operation, for example evaluating {@code 2 + 3} to 5 in order to set
-   * {@code $x} to 5 in {@code #set ($x = 2 + 3)}. Or it may be used directly as part of the
-   * template output, for example evaluating replacing {@code name} by {@code Fred} in
-   * {@code My name is $name.}.
+   * Adds this node's contribution to the {@code output}. Depending on the node type, this might be
+   * plain text from the template, or one branch of an {@code #if}, or the value of a
+   * {@code $reference}, etc.
    */
-  abstract Object evaluate(EvaluationContext context);
+  abstract void render(EvaluationContext context, StringBuilder output);
+
+  /** True if this node is just a span of whitespace in the text. */
+  boolean isWhitespace() {
+    return false;
+  }
 
   private String where() {
     String where = "In expression on line " + lineNumber;
@@ -81,12 +84,11 @@ abstract class Node {
       this.nodes = nodes;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
-      StringBuilder sb = new StringBuilder();
+    @Override
+    void render(EvaluationContext context, StringBuilder output) {
       for (Node node : nodes) {
-        sb.append(node.evaluate(context));
+        node.render(context, output);
       }
-      return sb.toString();
     }
   }
 }

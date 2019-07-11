@@ -15,6 +15,8 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.base.CharMatcher;
+
 /**
  * A node in the parse tree representing a constant value. Evaluating the node yields the constant
  * value. Instances of this class are used both in expressions, like the {@code 23} in
@@ -39,5 +41,10 @@ class ConstantExpressionNode extends ExpressionNode {
   @Override
   Object evaluate(EvaluationContext context) {
     return value;
+  }
+
+  @Override
+  boolean isWhitespace() {
+    return value instanceof String && CharMatcher.whitespace().matchesAllOf((String) value);
   }
 }

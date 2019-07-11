@@ -34,7 +34,7 @@ abstract class TokenNode extends Node {
    * This method always throws an exception because a node like this should never be found in the
    * final parse tree.
    */
-  @Override Object evaluate(EvaluationContext vars) {
+  @Override void render(EvaluationContext vars, StringBuilder output) {
     throw new UnsupportedOperationException(getClass().getName());
   }
 

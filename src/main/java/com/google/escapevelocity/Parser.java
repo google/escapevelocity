@@ -483,7 +483,7 @@ class Parser {
       throw parseException("Unrecognized directive #" + directive);
     }
     next();
-    ImmutableList.Builder<Node> parameterNodes = ImmutableList.builder();
+    ImmutableList.Builder<ExpressionNode> parameterNodes = ImmutableList.builder();
     while (true) {
       skipSpace();
       if (c == ')') {
@@ -988,7 +988,7 @@ class Parser {
     Object evaluate(EvaluationContext context) {
       StringBuilder sb = new StringBuilder();
       for (Node node : nodes) {
-        sb.append(node.evaluate(context));
+        node.render(context, sb);
       }
       return sb.toString();
     }

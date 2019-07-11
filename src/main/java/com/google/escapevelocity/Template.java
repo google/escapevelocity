@@ -81,6 +81,7 @@ public class Template {
    * @return an object representing the parsed template.
    * @throws IOException if there is an exception reading from {@code reader}, or if the template
    *     references another template via {@code #parse}.
+   * @throws ParseException if the text of the template could not be parsed.
    */
   public static Template parseFrom(Reader reader) throws IOException {
     ResourceOpener resourceOpener = resourceName -> {
@@ -105,6 +106,7 @@ public class Template {
    *     {@code #parse} directives in the template.
    * @return an object representing the parsed template.
    * @throws IOException if there is an exception opening or reading from any resource.
+   * @throws ParseException if the text of the template could not be parsed.
    */
   public static Template parseFrom(
       String resourceName, ResourceOpener resourceOpener) throws IOException {
@@ -125,9 +127,16 @@ public class Template {
    *     will expand to 23.
    *
    * @return the string result of evaluating the template.
+   *
+   * @throws EvaluationException if the evaluation failed, for example because of an undefined
+   *     reference.
    */
   public String evaluate(Map<String, ?> vars) {
     EvaluationContext evaluationContext = new PlainEvaluationContext(vars, methodFinder);
-    return String.valueOf(root.evaluate(evaluationContext));
+    StringBuilder sb = new StringBuilder(1024);
+    // The default size of 16 is going to be too small for the vast majority of rendered templates.
+    // We use a somewhat arbitrary larger starting size instead.
+    root.render(evaluationContext, sb);
+    return sb.toString();
   }
 }

@@ -42,18 +42,16 @@ abstract class DirectiveNode extends Node {
    */
   static class SetNode extends DirectiveNode {
     private final String var;
-    private final Node expression;
+    private final ExpressionNode expression;
 
-    SetNode(String var, Node expression) {
+    SetNode(String var, ExpressionNode expression) {
       super(expression.resourceName, expression.lineNumber);
       this.var = var;
       this.expression = expression;
     }
 
-    @Override
-    Object evaluate(EvaluationContext context) {
+    @Override void render(EvaluationContext context, StringBuilder output) {
       context.setVar(var, expression.evaluate(context));
-      return "";
     }
   }
 
@@ -81,9 +79,9 @@ abstract class DirectiveNode extends Node {
       this.falsePart = falseNode;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
+    @Override void render(EvaluationContext context, StringBuilder output) {
       Node branch = condition.isDefinedAndTrue(context) ? truePart : falsePart;
-      return branch.evaluate(context);
+      branch.render(context, output);
     }
   }
 
@@ -108,7 +106,7 @@ abstract class DirectiveNode extends Node {
     }
 
     @Override
-    Object evaluate(EvaluationContext context) {
+    void render(EvaluationContext context, StringBuilder output) {
       Object collectionValue = collection.evaluate(context);
       Iterable<?> iterable;
       if (collectionValue instanceof Iterable<?>) {
@@ -121,16 +119,14 @@ abstract class DirectiveNode extends Node {
         throw evaluationException("Not iterable: " + collectionValue);
       }
       Runnable undo = context.setVar(var, null);
-      StringBuilder sb = new StringBuilder();
       CountingIterator it = new CountingIterator(iterable.iterator());
       Runnable undoForEach = context.setVar("foreach", new ForEachVar(it));
       while (it.hasNext()) {
         context.setVar(var, it.next());
-        sb.append(body.evaluate(context));
+        body.render(context, output);
       }
       undoForEach.run();
       undo.run();
-      return sb.toString();
     }
 
     private static class CountingIterator implements Iterator<Object> {
@@ -192,14 +188,14 @@ abstract class DirectiveNode extends Node {
    */
   static class MacroCallNode extends DirectiveNode {
     private final String name;
-    private final ImmutableList<Node> thunks;
+    private final ImmutableList<ExpressionNode> thunks;
     private Macro macro;
 
     MacroCallNode(
         String resourceName,
         int lineNumber,
         String name,
-        ImmutableList<Node> argumentNodes) {
+        ImmutableList<ExpressionNode> argumentNodes) {
       super(resourceName, lineNumber);
       this.name = name;
       this.thunks = argumentNodes;
@@ -218,9 +214,9 @@ abstract class DirectiveNode extends Node {
     }
 
     @Override
-    Object evaluate(EvaluationContext context) {
+    void render(EvaluationContext context, StringBuilder output) {
       Verify.verifyNotNull(macro, "Macro #%s should have been linked", name);
-      return macro.evaluate(context, thunks);
+      macro.render(context, thunks, output);
     }
   }
 }
