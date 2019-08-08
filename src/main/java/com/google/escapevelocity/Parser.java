@@ -19,9 +19,13 @@ import com.google.common.base.CharMatcher;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
+import com.google.escapevelocity.DirectiveNode.ForEachNode;
+import com.google.escapevelocity.DirectiveNode.IfNode;
 import com.google.escapevelocity.DirectiveNode.SetNode;
 import com.google.escapevelocity.ExpressionNode.BinaryExpressionNode;
 import com.google.escapevelocity.ExpressionNode.NotExpressionNode;
@@ -29,18 +33,18 @@ import com.google.escapevelocity.ReferenceNode.IndexReferenceNode;
 import com.google.escapevelocity.ReferenceNode.MemberReferenceNode;
 import com.google.escapevelocity.ReferenceNode.MethodReferenceNode;
 import com.google.escapevelocity.ReferenceNode.PlainReferenceNode;
-import com.google.escapevelocity.TokenNode.CommentTokenNode;
-import com.google.escapevelocity.TokenNode.ElseIfTokenNode;
-import com.google.escapevelocity.TokenNode.ElseTokenNode;
-import com.google.escapevelocity.TokenNode.EndTokenNode;
-import com.google.escapevelocity.TokenNode.EofNode;
-import com.google.escapevelocity.TokenNode.ForEachTokenNode;
-import com.google.escapevelocity.TokenNode.IfTokenNode;
-import com.google.escapevelocity.TokenNode.MacroDefinitionTokenNode;
-import com.google.escapevelocity.TokenNode.NestedTokenNode;
+import com.google.escapevelocity.StopNode.ElseIfNode;
+import com.google.escapevelocity.StopNode.ElseNode;
+import com.google.escapevelocity.StopNode.EndNode;
+import com.google.escapevelocity.StopNode.EofNode;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.Reader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Supplier;
 
 /**
  * A parser that reads input from the given {@link Reader} and parses it to produce a
@@ -51,9 +55,17 @@ import java.io.Reader;
 class Parser {
   private static final int EOF = -1;
 
+  private static final ImmutableSet<Class<? extends StopNode>> EOF_CLASS =
+      ImmutableSet.of(EofNode.class);
+  private static final ImmutableSet<Class<? extends StopNode>> END_CLASS =
+      ImmutableSet.of(EndNode.class);
+  private static final ImmutableSet<Class<? extends StopNode>> ELSE_ELSEIF_END_CLASSES =
+      ImmutableSet.of(ElseNode.class, ElseIfNode.class, EndNode.class);
+
   private final LineNumberReader reader;
   private final String resourceName;
   private final Template.ResourceOpener resourceOpener;
+  private final Map<String, Macro> macros;
 
   /**
    * The invariant of this parser is that {@code c} is always the next character of interest.
@@ -73,60 +85,32 @@ class Parser {
 
   Parser(Reader reader, String resourceName, Template.ResourceOpener resourceOpener)
       throws IOException {
+    this(reader, resourceName, resourceOpener, new TreeMap<>());
+  }
+
+  private Parser(
+      Reader reader,
+      String resourceName,
+      Template.ResourceOpener resourceOpener,
+      Map<String, Macro> macros)
+      throws IOException {
     this.reader = new LineNumberReader(reader);
     this.reader.setLineNumber(1);
     next();
     this.resourceName = resourceName;
     this.resourceOpener = resourceOpener;
+    this.macros = macros;
   }
 
   /**
-   * Parse the input completely to produce a {@link Template}.
-   *
-   * <p>Parsing happens in two phases. First, we parse a sequence of "tokens", where tokens include
-   * entire references such as <pre>
-   *    ${x.foo()[23]}
-   * </pre>or entire directives such as<pre>
-   *    #set ($x = $y + $z)
-   * </pre>But tokens do not span complex constructs. For example,<pre>
-   *    #if ($x == $y) something #end
-   * </pre>is three tokens:<pre>
-   *    #if ($x == $y)
-   *    (literal text " something ")
-   *   #end
-   * </pre>
-   *
-   * <p>The second phase then takes the sequence of tokens and constructs a parse tree out of it.
-   * Some nodes in the parse tree will be unchanged from the token sequence, such as the <pre>
-   *    ${x.foo()[23]}
-   *    #set ($x = $y + $z)
-   * </pre> examples above. But a construct such as the {@code #if ... #end} mentioned above will
-   * become a single IfNode in the parse tree in the second phase.
-   *
-   * <p>The main reason for this approach is that Velocity has two kinds of lexical contexts. At the
-   * top level, there can be arbitrary literal text; references like <code>${x.foo()}</code>; and
-   * directives like {@code #if} or {@code #set}. Inside the parentheses of a directive, however,
-   * neither arbitrary text nor directives can appear, but expressions can, so we need to tokenize
-   * the inside of <pre>
-   *    #if ($x == $a + $b)
-   * </pre> as the five tokens "$x", "==", "$a", "+", "$b". Rather than having a classical
-   * parser/lexer combination, where the lexer would need to switch between these two modes, we
-   * replace the lexer with an ad-hoc parser that is the first phase described above, and we
-   * define a simple parser over the resultant tokens that is the second phase.
+   * Parse the input completely to produce a {@link Template}. We use a fairly standard
+   * recursive-descent parser with ad-hoc lexing and a few hacks needed to reproduce quirks of
+   * Velocity's behaviour.
    */
   Template parse() throws IOException {
-    ImmutableList<Node> tokens = parseTokens();
-    return new Reparser(tokens).reparse();
-  }
-
-  private ImmutableList<Node> parseTokens() throws IOException {
-    ImmutableList.Builder<Node> tokens = ImmutableList.builder();
-    Node token;
-    do {
-      token = parseNode();
-      tokens.add(token);
-    } while (!(token instanceof EofNode));
-    return tokens.build();
+    ParseResult parseResult = parseToStop(EOF_CLASS, () -> "outside any construct");
+    Node root = Node.cons(resourceName, lineNumber(), parseResult.nodes);
+    return new Template(root, ImmutableMap.copyOf(macros));
   }
 
   private int lineNumber() {
@@ -193,14 +177,63 @@ class Parser {
     }
   }
 
+  private static class ParseResult {
+    final ImmutableList<Node> nodes;
+    final StopNode stop;
+
+    ParseResult(ImmutableList<Node> nodes, StopNode stop) {
+      this.nodes = nodes;
+      this.stop = stop;
+    }
+  }
+
   /**
-   * Parses a single node from the reader, as part of the first parsing phase.
-   * <pre>{@code
-   * <template> -> <empty> |
-   *               <directive> <template> |
-   *               <non-directive> <template>
-   * }</pre>
+   * Parse until reaching a {@code StopNode}. The {@code StopNode} must have one of the classes in
+   * {@code stopClasses}. This method is called recursively to parse nested constructs. At the
+   * top level, we expect the parse to end when it reaches {@code EofNode}. In a {@code #foreach},
+   * for example, we expect the parse to end when it reaches the matching {@code #end}. In an
+   * {@code #if}, the parse can end with {@code #end}, {@code #else}, or {@code #elseif}. And then
+   * after {@code #else} or {@code #elseif} we will call this method again to parse the next part.
+   *
+   * @return the nodes that were parsed, plus the {@code StopNode} that caused parsing to stop.
    */
+  private ParseResult parseToStop(
+      ImmutableSet<Class<? extends StopNode>> stopClasses, Supplier<String> contextDescription)
+      throws IOException {
+    List<Node> nodes = new ArrayList<>();
+    Node node;
+    while (true) {
+      node = parseNode();
+      if (node instanceof StopNode) {
+        break;
+      }
+      if (node instanceof SetNode) {
+        SetSpacing.removeSpaceBeforeSet(nodes);
+      }
+      nodes.add(node);
+    }
+    StopNode stop = (StopNode) node;
+    if (!stopClasses.contains(stop.getClass())) {
+      throw parseException("Found " + stop.name() + " " + contextDescription.get());
+    }
+    return new ParseResult(ImmutableList.copyOf(nodes), stop);
+  }
+
+  /**
+   * Skip the current character if it is a newline, then parse until reaching a {@code StopNode}.
+   * This is used after directives like {@code #if}, where a newline is ignored after the final
+   * {@code )} in {@code #if (condition)}.
+   */
+  private ParseResult skipNewlineAndParseToStop(
+      ImmutableSet<Class<? extends StopNode>> stopClasses, Supplier<String> contextDescription)
+      throws IOException {
+    if (c == '\n') {
+      next();
+    }
+    return parseToStop(stopClasses, contextDescription);
+  }
+
+  /** Parses a single node from the reader. */
   private Node parseNode() throws IOException {
     if (c == '#') {
       next();
@@ -263,11 +296,9 @@ class Parser {
   }
 
   /**
-   * Parses a single non-directive node from the reader.
-   * <pre>{@code
-   * <non-directive> -> <reference> |
-   *                    <text containing neither $ nor #>
-   * }</pre>
+   * Parses a single non-directive node from the reader. This is either a reference, like
+   * {@code foo} or {@code bar.baz} or {@code foo.bar[$baz].buh()}; or it is text containing
+   * neither references (no {@code $}) nor directives (no {@code #}).
    */
   private Node parseNonDirective() throws IOException {
     if (c == '$') {
@@ -286,19 +317,9 @@ class Parser {
 
   /**
    * Parses a single directive token from the reader. Directives can be spelled with or without
-   * braces, for example {@code #if} or {@code #{if}}. We omit the brace spelling in the productions
-   * here: <pre>{@code
-   * <directive> -> <if-token> |
-   *                <else-token> |
-   *                <elseif-token> |
-   *                <end-token> |
-   *                <foreach-token> |
-   *                <set-token> |
-   *                <parse-token> |
-   *                <macro-token> |
-   *                <macro-call> |
-   *                <comment>
-   * }</pre>
+   * braces, for example {@code #if} or {@code #{if}}. In the case of {@code #end}, {@code #else},
+   * and {@code #elseif}, we return a {@link StopNode} representing just the token itself. In other
+   * cases we also parse the complete directive, for example a complete {@code #foreach...#end}.
    */
   private Node parseDirective() throws IOException {
     String directive;
@@ -312,18 +333,18 @@ class Parser {
     Node node;
     switch (directive) {
       case "end":
-        node = new EndTokenNode(resourceName, lineNumber());
+        node = new EndNode(resourceName, lineNumber());
         break;
       case "if":
+        return parseIfOrElseIf("#if");
       case "elseif":
-        node = parseIfOrElseIf(directive);
+        node = new ElseIfNode(resourceName, lineNumber());
         break;
       case "else":
-        node = new ElseTokenNode(resourceName, lineNumber());
+        node = new ElseNode(resourceName, lineNumber());
         break;
       case "foreach":
-        node = parseForEach();
-        break;
+        return parseForEach();
       case "set":
         node = parseSet();
         break;
@@ -331,12 +352,13 @@ class Parser {
         node = parseParse();
         break;
       case "macro":
-        node = parseMacroDefinition();
-        break;
+        return parseMacroDefinition();
       default:
         node = parsePossibleMacroCall(directive);
     }
-    // Velocity skips a newline after any directive.
+    // Velocity skips a newline after any directive. In the case of #if etc, we'll have done this
+    // when we stopped scanning the body at #end, so in those cases we return directly rather than
+    // breaking into the code here.
     // TODO(emcmanus): in fact it also skips space before the newline, which should be implemented.
     if (c == '\n') {
       next();
@@ -345,27 +367,47 @@ class Parser {
   }
 
   /**
-   * Parses the condition following {@code #if} or {@code #elseif}.
-   * <pre>{@code
-   * <if-token> -> #if ( <condition> )
-   * <elseif-token> -> #elseif ( <condition> )
-   * }</pre>
+   * Parses an {@code #if} construct, or an {@code #elseif} within one.
    *
-   * @param directive either {@code "if"} or {@code "elseif"}.
+   * <pre>{@code
+   * #if ( <condition> ) <true-text> #end
+   * #if ( <condition> ) <true-text> #else <false-text> #end
+   * #if ( <condition1> ) <text1> #elseif ( <condition2> ) <text2> #else <text3> #end
+   * }</pre>
    */
   private Node parseIfOrElseIf(String directive) throws IOException {
+    int startLine = lineNumber();
     expect('(');
     ExpressionNode condition = parseExpression();
     expect(')');
-    return directive.equals("if") ? new IfTokenNode(condition) : new ElseIfTokenNode(condition);
+    ParseResult parsedTruePart =
+        skipNewlineAndParseToStop(
+            ELSE_ELSEIF_END_CLASSES,
+            () -> "parsing " + directive + " starting on line " + startLine);
+    Node truePart = Node.cons(resourceName, startLine, parsedTruePart.nodes);
+    Node falsePart;
+    if (parsedTruePart.stop instanceof EndNode) {
+      falsePart = Node.emptyNode(resourceName, lineNumber());
+    } else if (parsedTruePart.stop instanceof ElseIfNode) {
+      falsePart = parseIfOrElseIf("#elseif");
+    } else {
+      int elseLine = lineNumber();
+      ParseResult parsedFalsePart =
+          parseToStop(END_CLASS, () -> "parsing #else starting on line " + elseLine);
+      falsePart = Node.cons(resourceName, elseLine, parsedFalsePart.nodes);
+    }
+    return new IfNode(resourceName, startLine, condition, truePart, falsePart);
   }
 
   /**
-   * Parses a {@code #foreach} token from the reader. <pre>{@code
-   * <foreach-token> -> #foreach ( $<id> in <expression> )
+   * Parses a {@code #foreach} token from the reader.
+   *
+   * <pre>{@code
+   * #foreach ( $<id> in <expression> ) <body> #end
    * }</pre>
    */
   private Node parseForEach() throws IOException {
+    int startLine = lineNumber();
     expect('(');
     expect('$');
     String var = parseId("For-each variable");
@@ -385,12 +427,18 @@ class Parser {
     next();
     ExpressionNode collection = parseExpression();
     expect(')');
-    return new ForEachTokenNode(var, collection);
+    ParseResult parsedBody =
+        skipNewlineAndParseToStop(
+            END_CLASS, () -> "parsing #foreach starting on line " + startLine);
+    Node body = Node.cons(resourceName, startLine, parsedBody.nodes);
+    return new ForEachNode(resourceName, startLine, var, collection, body);
   }
 
   /**
-   * Parses a {@code #set} token from the reader. <pre>{@code
-   * <set-token> -> #set ( $<id> = <expression>)
+   * Parses a {@code #set} token from the reader.
+   *
+   * <pre>{@code
+   * #set ( $<id> = <expression> )
    * }</pre>
    */
   private Node parseSet() throws IOException {
@@ -404,8 +452,10 @@ class Parser {
   }
 
   /**
-   * Parses a {@code #parse} token from the reader. <pre>{@code
-   * <parse-token> -> #parse ( <string-literal> )
+   * Parses a {@code #parse} token from the reader.
+   *
+   * <pre>{@code
+   * #parse ( <string-literal> )
    * }</pre>
    *
    * <p>The way this works is inconsistent with Velocity. In Velocity, the {@code #parse} directive
@@ -417,6 +467,7 @@ class Parser {
    * inside {@code #parse} directives, which Velocity does not.
    */
   private Node parseParse() throws IOException {
+    int startLine = lineNumber();
     expect('(');
     skipSpace();
     if (c != '"' && c != '\'') {
@@ -426,22 +477,23 @@ class Parser {
     String nestedResourceName = nestedResourceNameExpression.evaluate(null).toString();
     expect(')');
     try (Reader nestedReader = resourceOpener.openResource(nestedResourceName)) {
-      Parser nestedParser = new Parser(nestedReader, nestedResourceName, resourceOpener);
-      ImmutableList<Node> nestedTokens = nestedParser.parseTokens();
-      return new NestedTokenNode(nestedResourceName, nestedTokens);
+      Parser nestedParser = new Parser(nestedReader, nestedResourceName, resourceOpener, macros);
+      ParseResult parseResult = nestedParser.parseToStop(EOF_CLASS, () -> "outside any construct");
+      return Node.cons(resourceName, startLine, parseResult.nodes);
     }
   }
 
   /**
-   * Parses a {@code #macro} token from the reader. <pre>{@code
-   * <macro-token> -> #macro ( <id> <macro-parameter-list> )
-   * <macro-parameter-list> -> <empty> |
-   *                           $<id> <macro-parameter-list>
+   * Parses a {@code #macro} token from the reader.
+   *
+   * <pre>{@code
+   * #macro ( <id> $<param1> $<param2> <...>) <body> #end
    * }</pre>
    *
    * <p>Macro parameters are optionally separated by commas.
    */
   private Node parseMacroDefinition() throws IOException {
+    int startLine = lineNumber();
     expect('(');
     skipSpace();
     String name = parseId("Macro name");
@@ -462,7 +514,16 @@ class Parser {
       next();
       parameterNames.add(parseId("Macro parameter name"));
     }
-    return new MacroDefinitionTokenNode(resourceName, lineNumber(), name, parameterNames.build());
+    ParseResult parsedBody =
+        skipNewlineAndParseToStop(END_CLASS, () -> "parsing #macro starting on line " + startLine);
+    if (!macros.containsKey(name)) {
+      ImmutableList<Node> bodyNodes =
+          ImmutableList.copyOf(SetSpacing.removeInitialSpaceBeforeSet(parsedBody.nodes));
+      Node body = Node.cons(resourceName, startLine, bodyNodes);
+      Macro macro = new Macro(startLine, name, parameterNames.build(), body);
+      macros.put(name, macro);
+    }
+    return Node.emptyNode(resourceName, lineNumber());
   }
 
   /**
@@ -471,10 +532,11 @@ class Parser {
    * extracted from the template during the second parsing phase (and not during evaluation of the
    * template as you might expect). This means that a macro can be called before it is defined.
    * <pre>{@code
-   * <macro-call> -> # <id> ( <expression-list> )
-   * <expression-list> -> <empty> |
-   *                      <expression> <optional-comma> <expression-list>
-   * <optional-comma> -> <empty> | ,
+   * #<id> ()
+   * #<id> ( <expr1> )
+   * #<id> ( <expr1> <expr2>)
+   * #<id> ( <expr1> , <expr2>)
+   * ...
    * }</pre>
    */
   private Node parsePossibleMacroCall(String directive) throws IOException {
@@ -502,7 +564,7 @@ class Parser {
   }
 
   /**
-   * Parses and discards a line comment, which is {@code ##} followed by any number of characters
+   * Parses a line comment, which is {@code ##} followed by any number of characters
    * up to and including the next newline.
    */
   private Node parseLineComment() throws IOException {
@@ -511,11 +573,11 @@ class Parser {
       next();
     }
     next();
-    return new CommentTokenNode(resourceName, lineNumber);
+    return new CommentNode(resourceName, lineNumber);
   }
 
   /**
-   * Parses and discards a block comment, which is {@code #*} followed by everything up to and
+   * Parses a block comment, which is {@code #*} followed by everything up to and
    * including the next {@code *#}.
    */
   private Node parseBlockComment() throws IOException {
@@ -529,7 +591,21 @@ class Parser {
       next();
     }
     next(); // this may read EOF twice, which works
-    return new CommentTokenNode(resourceName, startLine);
+    return new CommentNode(resourceName, startLine);
+  }
+
+  /**
+   * A node in the parse tree representing a comment. The only reason for recording comment nodes is
+   * so that we can skip space between a comment and a following {@code #set}, to be compatible with
+   * Velocity behaviour.
+   */
+  static class CommentNode extends Node {
+    CommentNode(String resourceName, int lineNumber) {
+      super(resourceName, lineNumber);
+    }
+
+    @Override
+    void render(EvaluationContext context, StringBuilder output) {}
   }
 
   /**
@@ -625,7 +701,7 @@ class Parser {
    * }</pre>
    *
    * @param lhs the reference node representing the first part of the reference
-   * {@code $x} in {@code $x.foo} or {@code $x.foo()}, or later {@code $x.y} in {@code $x.y.z}.
+   *     {@code $x} in {@code $x.foo} or {@code $x.foo()}, or later {@code $x.y} in {@code $x.y.z}.
    */
   private ReferenceNode parseReferenceSuffix(ReferenceNode lhs) throws IOException {
     switch (c) {

@@ -15,6 +15,7 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -45,12 +46,18 @@ interface EvaluationContext {
   /** See {@link MethodFinder#publicMethodsWithName}. */
   ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name);
 
+  /** Gets the macro definition with the given name, or null if there is none. */
+  Macro getMacro(String name);
+
   class PlainEvaluationContext implements EvaluationContext {
     private final Map<String, Object> vars;
+    private final ImmutableMap<String, Macro> macros;
     private final MethodFinder methodFinder;
 
-    PlainEvaluationContext(Map<String, ?> vars, MethodFinder methodFinder) {
+    PlainEvaluationContext(
+        Map<String, ?> vars, ImmutableMap<String, Macro> macros, MethodFinder methodFinder) {
       this.vars = new TreeMap<>(vars);
+      this.macros = macros;
       this.methodFinder = methodFinder;
     }
 
@@ -80,6 +87,11 @@ interface EvaluationContext {
     @Override
     public ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name) {
       return methodFinder.publicMethodsWithName(startClass, name);
+    }
+
+    @Override
+    public Macro getMacro(String name) {
+      return macros.get(name);
     }
   }
 }

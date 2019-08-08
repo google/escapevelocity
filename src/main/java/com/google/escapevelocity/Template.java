@@ -15,6 +15,7 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.escapevelocity.EvaluationContext.PlainEvaluationContext;
 import java.io.IOException;
 import java.io.Reader;
@@ -31,7 +32,8 @@ import java.util.Map;
 // TODO(emcmanus): spell out exactly what Velocity features are unsupported.
 public class Template {
   private final Node root;
-  
+  private final ImmutableMap<String, Macro> macros;
+
   /**
    * Caches {@link Method} objects for public methods accessed through references. The first time
    * we evaluate {@code $var.property} or {@code $var.method(...)} for a {@code $var} of a given
@@ -115,8 +117,9 @@ public class Template {
     }
   }
 
-  Template(Node root) {
+  Template(Node root, ImmutableMap<String, Macro> macros) {
     this.root = root;
+    this.macros = macros;
   }
 
   /**
@@ -132,7 +135,7 @@ public class Template {
    *     reference.
    */
   public String evaluate(Map<String, ?> vars) {
-    EvaluationContext evaluationContext = new PlainEvaluationContext(vars, methodFinder);
+    EvaluationContext evaluationContext = new PlainEvaluationContext(vars, macros, methodFinder);
     StringBuilder sb = new StringBuilder(1024);
     // The default size of 16 is going to be too small for the vast majority of rendered templates.
     // We use a somewhat arbitrary larger starting size instead.
