@@ -45,17 +45,13 @@ class Macro {
     this.body = body;
   }
 
-  String name() {
-    return name;
-  }
-
   int parameterCount() {
     return parameterNames.size();
   }
 
   void render(EvaluationContext context, List<ExpressionNode> thunks, StringBuilder output) {
     try {
-      Verify.verify(thunks.size() == parameterNames.size(), "Argument mistmatch for %s", name);
+      Verify.verify(thunks.size() == parameterNames.size(), "Argument mismatch for %s", name);
       Map<String, ExpressionNode> parameterThunks = new LinkedHashMap<>();
       for (int i = 0; i < parameterNames.size(); i++) {
         parameterThunks.put(parameterNames.get(i), thunks.get(i));
@@ -66,7 +62,7 @@ class Macro {
       EvaluationException newException = new EvaluationException(
           "In macro #" + name + " defined on line " + definitionLineNumber + ": " + e.getMessage());
       newException.setStackTrace(e.getStackTrace());
-      throw e;
+      throw newException;
     }
   }
 
@@ -136,6 +132,11 @@ class Macro {
     @Override
     public ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name) {
       return originalEvaluationContext.publicMethodsWithName(startClass, name);
+    }
+
+    @Override
+    public Macro getMacro(String name) {
+      return originalEvaluationContext.getMacro(name);
     }
   }
 }

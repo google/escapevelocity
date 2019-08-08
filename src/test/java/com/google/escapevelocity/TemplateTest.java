@@ -130,7 +130,7 @@ public class TemplateTest {
     return writer.toString();
   }
 
-  private void expectParseException(
+  private void expectException(
       String template,
       String expectedMessageSubstring) {
     Exception velocityException = null;
@@ -145,11 +145,12 @@ public class TemplateTest {
       velocityException = expected;
     }
     try {
-      Template.parseFrom(new StringReader(template));
+      Template parsedTemplate = Template.parseFrom(new StringReader(template));
+      parsedTemplate.evaluate(ImmutableMap.of());
       fail("Velocity generated an exception, but EscapeVelocity did not: " + velocityException);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
-    } catch (ParseException expected) {
+    } catch (ParseException | EvaluationException expected) {
       assertWithMessage("Got expected exception, but message did not match")
           .that(expected).hasMessageThat().contains(expectedMessageSubstring);
     }
@@ -503,6 +504,7 @@ public class TemplateTest {
     compare("x#if (true) y #end\nz");
     compare("x#if (true)\ny #end\nz");
     compare("x#if (true) y #end\nz");
+    compare("x#if (true) y #end\n\nz");
     compare("$x #if (true) y #end $x ", ImmutableMap.of("x", "!"));
   }
 
@@ -534,6 +536,7 @@ public class TemplateTest {
   @Test
   public void ifFalseWithElseIfTrue() {
     compare("x#if (false) a #elseif (true) b #else c #end z");
+    compare("x#if (false)\na\n#elseif (true)\nb\n#else\nc\n#end\nz");
   }
 
   @Test
@@ -553,6 +556,10 @@ public class TemplateTest {
   @Test
   public void forEach() {
     compare("x#foreach ($x in $c) <$x> #end y",
+        ImmutableMap.of("c", ImmutableList.of()));
+    compare("x#foreach ($x in $c) <$x> #end\ny",
+        ImmutableMap.of("c", ImmutableList.of()));
+    compare("x#foreach ($x in $c) <$x> #end\n\ny",
         ImmutableMap.of("c", ImmutableList.of()));
     compare("x#foreach ($x in $c) <$x> #end y",
         ImmutableMap.of("c", ImmutableList.of("foo", "bar", "baz")));
@@ -824,13 +831,13 @@ public class TemplateTest {
   @Test
   public void badBraceReference() {
     String template = "line 1\nline 2\nbar${foo.!}baz";
-    expectParseException(template, "Expected }, on line 3, at text starting: .!}baz");
+    expectException(template, "Expected }, on line 3, at text starting: .!}baz");
   }
 
   @Test
   public void undefinedMacro() {
     String template = "#oops()";
-    expectParseException(
+    expectException(
         template,
         "#oops is neither a standard directive nor a macro that has been defined");
   }
@@ -840,13 +847,13 @@ public class TemplateTest {
     String template =
         "#macro (twoArgs $a $b) $a $b #end\n"
         + "#twoArgs(23)\n";
-    expectParseException(template, "Wrong number of arguments to #twoArgs: expected 2, got 1");
+    expectException(template, "Wrong number of arguments to #twoArgs: expected 2, got 1");
   }
 
   @Test
   public void unclosedBlockQuote() {
     String template = "foo\nbar #[[\nblah\nblah";
-    expectParseException(template, "Unterminated #[[ - did not see matching ]]#, on line 2");
+    expectException(template, "Unterminated #[[ - did not see matching ]]#, on line 2");
   }
 
   @Test

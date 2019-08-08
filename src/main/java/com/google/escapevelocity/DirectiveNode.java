@@ -15,7 +15,6 @@
  */
 package com.google.escapevelocity;
 
-import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -91,7 +90,7 @@ abstract class DirectiveNode extends Node {
    * turn. Once the loop completes, {@code $x} will go back to whatever value it had before, which
    * might be undefined. During loop execution, the variable {@code $foreach} is also defined.
    * Velocity defines a number of properties in this variable, but here we only support
-   * {@code $foreach.hasNext}.
+   * {@code $foreach.hasNext} and {@code $foreach.index}.
    */
   static class ForEachNode extends DirectiveNode {
     private final String var;
@@ -189,7 +188,6 @@ abstract class DirectiveNode extends Node {
   static class MacroCallNode extends DirectiveNode {
     private final String name;
     private final ImmutableList<ExpressionNode> thunks;
-    private Macro macro;
 
     MacroCallNode(
         String resourceName,
@@ -201,21 +199,22 @@ abstract class DirectiveNode extends Node {
       this.thunks = argumentNodes;
     }
 
-    String name() {
-      return name;
-    }
-
-    int argumentCount() {
-      return thunks.size();
-    }
-
-    void setMacro(Macro macro) {
-      this.macro = macro;
-    }
-
     @Override
     void render(EvaluationContext context, StringBuilder output) {
-      Verify.verifyNotNull(macro, "Macro #%s should have been linked", name);
+      Macro macro = context.getMacro(name);
+      if (macro == null) {
+        throw evaluationException(
+            "#" + name + " is neither a standard directive nor a macro that has been defined");
+      }
+      if (thunks.size() != macro.parameterCount()) {
+        throw evaluationException(
+            "Wrong number of arguments to #"
+                + name
+                + ": expected "
+                + macro.parameterCount()
+                + ", got "
+                + thunks.size());
+      }
       macro.render(context, thunks, output);
     }
   }
