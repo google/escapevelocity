@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.commons.collections.ExtendedProperties;
 import org.apache.velocity.VelocityContext;
@@ -371,6 +372,12 @@ public class TemplateTest {
     compare("#set ($s = \"$x\") <$s>", ImmutableMap.of("x", "fred"));
     compare("#set ($s = \"==$x$y\") <$s>", ImmutableMap.of("x", "fred", "y", "jim"));
     compare("#set ($s = \"$x$y==\") <$s>", ImmutableMap.of("x", "fred", "y", "jim"));
+    compare("#set ($s = \"abc#if (true) yes #else no #{end}def\") $s");
+    compare("#set ($s = \"abc\ndef\nghi\") <$s>");
+    compare("#set ($s = \"<#double(17)>\") #macro(double $n) #set ($x = 2 * $n) $x #end $s");
+    Function<String, String> quote = s -> "«" + s + "»";
+    compare("<$quote.apply(\"#foreach ($a in $list)$a#end\")>",
+        ImmutableMap.of("quote", quote, "list", ImmutableList.of("foo", "bar", "baz")));
   }
 
   @Test

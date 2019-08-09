@@ -40,6 +40,7 @@ import com.google.escapevelocity.StopNode.EofNode;
 import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.Reader;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -1002,54 +1003,42 @@ class Parser {
   }
 
   /**
-   * Parses a string literal, which may contain references to be expanded. Examples are
-   * {@code "foo"} or {@code "foo${bar}baz"}.
-   * <pre>{@code
-   * <string-literal> -> <double-quote-literal> | <single-quote-literal>
-   * <double-quote-literal> -> " <double-quote-string-contents> "
-   * <double-quote-string-contents> -> <empty> |
-   *                                   <reference> <double-quote-string-contents> |
-   *                                   <character-other-than-"> <double-quote-string-contents>
-   * <single-quote-literal> -> ' <single-quote-string-contents> '
-   * <single-quote-string-contents> -> <empty> |
-   *                                   <character-other-than-'> <single-quote-string-contents>
-   * }</pre>
+   * Parses a string literal, which may contain template text to be expanded. Examples are
+   * {@code 'foo}, {@code "foo"}, and {@code "foo${bar}baz"}. Double-quote string literals
+   * ({@code expand = true}) can have arbitrary template constructs inside them, such as references,
+   * directives like {@code #if}, and macro calls. Single-quote literals really are literal.
    */
-  private ExpressionNode parseStringLiteral(int quote, boolean allowReferences)
-      throws IOException {
+  private ExpressionNode parseStringLiteral(int quote, boolean expand) throws IOException {
     assert c == quote;
     next();
-    ImmutableList.Builder<Node> nodes = ImmutableList.builder();
     StringBuilder sb = new StringBuilder();
     while (c != quote) {
       switch (c) {
-        case '\n':
         case EOF:
           throw parseException("Unterminated string constant");
         case '\\':
           throw parseException(
               "Escapes in string constants are not currently supported");
-        case '$':
-          if (allowReferences) {
-            if (sb.length() > 0) {
-              nodes.add(new ConstantExpressionNode(resourceName, lineNumber(), sb.toString()));
-              sb.setLength(0);
-            }
-            next();
-            nodes.add(parseReference());
-            break;
-          }
-          // fall through
         default:
           sb.appendCodePoint(c);
           next();
       }
     }
     next();
-    if (sb.length() > 0) {
-      nodes.add(new ConstantExpressionNode(resourceName, lineNumber(), sb.toString()));
+    String s = sb.toString();
+    ImmutableList<Node> nodes;
+    if (expand) {
+      // This is potentially something like "foo${bar}baz" or "foo#macro($bar)baz", where the text
+      // inside "..." is expanded like a mini-template. Of course it might also just be a plain old
+      // string like "foo", in which case we will just parse a single ConstantExpressionNode here.
+      Parser stringParser = new Parser(
+          new StringReader(s), "string on line " + lineNumber(), resourceOpener, macros);
+      ParseResult parseResult = stringParser.parseToStop(EOF_CLASS, () -> "outside any construct");
+      nodes = parseResult.nodes;
+    } else {
+      nodes = ImmutableList.of(new ConstantExpressionNode(resourceName, lineNumber(), s));
     }
-    return new StringLiteralNode(resourceName, lineNumber(), nodes.build());
+    return new StringLiteralNode(resourceName, lineNumber(), nodes);
   }
 
   private static class StringLiteralNode extends ExpressionNode {
