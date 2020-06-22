@@ -67,6 +67,7 @@ abstract class Node {
     return new Cons(resourceName, lineNumber, ImmutableList.<Node>of());
   }
 
+
   /**
    * Create a new parse tree node that is the concatenation of the given ones. Evaluating the
    * new node produces the same string as evaluating each of the given nodes and concatenating the

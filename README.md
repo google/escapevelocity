@@ -14,7 +14,6 @@ the exact same string that Velocity produces. If not, that is a bug.
 EscapeVelocity has no facilities for HTML escaping and it is not appropriate for producing
 HTML output that might include portions of untrusted input.
 
-
 ## Motivation
 
 Velocity has a convenient templating language. It is easy to read, and it has widespread support
