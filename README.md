@@ -122,6 +122,9 @@ reference, you can use braces like this: `${purchase}.Total`. If, after a proper
 have a further period, you can put braces around the reference like this:
 `${purchase.Total}.nonProperty`.
 
+As a special case, if `$purchase` is a Java `Map`, `$purchase.Total` is the result of calling
+`get("Total")` on the `Map`.
+
 ### Methods
 
 If a reference looks like `$purchase.addItem("scones", 23)` then the value of the `$purchase`
@@ -167,8 +170,7 @@ In certain contexts, such as the `#set` directive we have just seen or certain o
 EscapeVelocity can evaluate expressions. An expression can be any of these:
 
 * A reference, of the kind we have just seen. The value is the value of the reference.
-* A string literal enclosed in double quotes, like `"this"`. A string literal must appear on
-  one line. EscapeVelocity does not support the characters `$` or `\\` in a string literal.
+* A string literal, as described below.
 * An integer literal such as `23` or `-100`. EscapeVelocity does not support floating-point
   literals.
 * A Boolean literal, `true` or `false`.
@@ -177,8 +179,15 @@ EscapeVelocity can evaluate expressions. An expression can be any of these:
   same precedence as in Java.
 * A simpler expression in parentheses, for example `(2 + 3)`.
 
-Velocity supports string literals with single quotes, like `'this`' and also references within
-strings, like `"a $reference in a string"`, but EscapeVelocity does not.
+### String literals
+
+There are two forms of string literals that can appear in expressions. The simpler form is
+surrounded with single quotes (`'...'`) and represents a string containing everything between those
+quotes. The other form is surrounded with double quotes (`"..."`) and again represents a string
+containing everything between the quotes, but this time the text can contain references like
+`$purchase.Total` and directives like `#if ($condition) yes #end`.
+
+String literals can span more than one line.
 
 ## Directives
 
@@ -247,7 +256,7 @@ If `$allProducts` is a `List` containing the strings `oranges` and `lemons` then
 When the `#foreach` completes, the loop variable (`$product` in the example) goes back to whatever
 value it had before, or to being undefined if it was undefined before.
 
-Within the `#foreach`, the special variables `$foreach` and `$index` are defined.
+Within the `#foreach`, the special variable `$foreach` is defined.
 
 `$foreach.hasNext` will be true if there are more values after this one or false if this
 is the last value. `$foreach.index` will be the index of the iteration.  For example:
