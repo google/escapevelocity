@@ -39,6 +39,10 @@ abstract class ReferenceNode extends ExpressionNode {
     super(resourceName, lineNumber);
   }
 
+  EvaluationException evaluationExceptionInThis(String message) {
+    return evaluationException("In " + this + ": " + message);
+  }
+
   /**
    * A node in the parse tree that is a plain reference such as {@code $x}. This node may appear
    * inside a more complex reference like {@code $x.foo}.
@@ -51,11 +55,15 @@ abstract class ReferenceNode extends ExpressionNode {
       this.id = id;
     }
 
+    @Override public String toString() {
+      return "$" + id;
+    }
+
     @Override Object evaluate(EvaluationContext context) {
       if (context.varIsDefined(id)) {
         return context.getVar(id);
       } else {
-        throw evaluationException("Undefined reference $" + id);
+        throw evaluationException("Undefined reference " + this);
       }
     }
 
@@ -86,10 +94,14 @@ abstract class ReferenceNode extends ExpressionNode {
     private static final String[] PREFIXES = {"get", "is"};
     private static final boolean[] CHANGE_CASE = {false, true};
 
+    @Override public String toString() {
+      return lhs + "." + id;
+    }
+
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
-        throw evaluationException("Cannot get member " + id + " of null value");
+        throw evaluationExceptionInThis(lhs + " must not be null");
       }
       // If this is a Map, then Velocity looks up the property in the map.
       if (lhsValue instanceof Map<?, ?>) {
@@ -115,9 +127,12 @@ abstract class ReferenceNode extends ExpressionNode {
           }
         }
       }
-      throw evaluationException(
-          "Member " + id + " does not correspond to a public getter of " + lhsValue
-              + ", a " + lhsValue.getClass().getName());
+      throw evaluationExceptionInThis(
+          id
+              + " does not correspond to a public getter of "
+              + lhsValue
+              + ", a "
+              + lhsValue.getClass().getName());
     }
 
     private static String changeInitialCase(String id) {
@@ -147,21 +162,36 @@ abstract class ReferenceNode extends ExpressionNode {
       this.index = index;
     }
 
+    @Override public String toString() {
+      return lhs + "[" + index + "]";
+    }
+
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
-        throw evaluationException("Cannot index null value");
+        throw evaluationExceptionInThis(lhs + " must not be null");
       }
       if (lhsValue instanceof List<?>) {
         Object indexValue = index.evaluate(context);
         if (!(indexValue instanceof Integer)) {
-          throw evaluationException("List index is not an integer: " + indexValue);
+          throw evaluationExceptionInThis("list index is not an Integer: " + indexValue);
         }
         List<?> lhsList = (List<?>) lhsValue;
         int i = (Integer) indexValue;
-        if (i < 0 || i >= lhsList.size()) {
-          throw evaluationException(
-              "List index " + i + " is not valid for list of size " + lhsList.size());
+        if (i < 0) {
+          int newI = lhsList.size() + i;
+          if (newI < 0) {
+            throw evaluationExceptionInThis(
+                "negative list index "
+                    + i
+                    + " counts from the end of the list, but the list size is only "
+                    + lhsList.size());
+          }
+          i = newI;
+        }
+        if (i >= lhsList.size()) {
+          throw evaluationExceptionInThis(
+              "list index " + i + " is not valid for list of size " + lhsList.size());
         }
         return lhsList.get(i);
       } else if (lhsValue instanceof Map<?, ?>) {
@@ -192,6 +222,10 @@ abstract class ReferenceNode extends ExpressionNode {
       this.args = args;
     }
 
+    @Override public String toString() {
+      return lhs + "." + id + "(" + Joiner.on(", ").join(args) + ")";
+    }
+
     /**
      * {@inheritDoc}
      *
@@ -212,7 +246,7 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context) {
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
-        throw evaluationException("Cannot invoke method " + id + " on null value");
+        throw evaluationExceptionInThis(lhs + " must not be null");
       }
       try {
         return evaluate(context, lhsValue, lhsValue.getClass());
@@ -234,7 +268,7 @@ abstract class ReferenceNode extends ExpressionNode {
           .collect(toList());
       ImmutableSet<Method> publicMethodsWithName = context.publicMethodsWithName(targetClass, id);
       if (publicMethodsWithName.isEmpty()) {
-        throw evaluationException("No method " + id + " in " + targetClass.getName());
+        throw evaluationExceptionInThis("no method " + id + " in " + targetClass.getName());
       }
       List<Method> compatibleMethods = publicMethodsWithName.stream()
           .filter(method -> compatibleArgs(method.getParameterTypes(), argValues))
@@ -244,15 +278,16 @@ abstract class ReferenceNode extends ExpressionNode {
         compatibleMethods =
             compatibleMethods.stream().filter(method -> !method.isSynthetic()).collect(toList());
       }
+      // TODO(emcmanus): extract most specific overload, foo(String) rather than foo(CharSequence).
       switch (compatibleMethods.size()) {
         case 0:
-          throw evaluationException(
-              "Parameters for method " + id + " have wrong types: " + argValues);
+          throw evaluationExceptionInThis(
+              "parameters for method " + id + " have wrong types: " + argValues);
         case 1:
           return invokeMethod(Iterables.getOnlyElement(compatibleMethods), lhsValue, argValues);
         default:
-          throw evaluationException(
-              "Ambiguous method invocation, could be one of:\n  "
+          throw evaluationExceptionInThis(
+              "ambiguous method invocation, could be one of:\n  "
               + Joiner.on("\n  ").join(compatibleMethods));
       }
     }

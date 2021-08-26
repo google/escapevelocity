@@ -146,6 +146,9 @@ be the result of `List.get(int)` for that list and that integer. Or, `$indexme` 
 and the reference would be the result of `Map.get(Object)` for the object `$i`. In general,
 `$indexme[$i]` is equivalent to `$indexme.get($i)`.
 
+For lists specifically, the index can be negative, and then it counts from the end of the list.
+For example `$list[-1]` is the last element of `$list`.
+
 Unlike Velocity, EscapeVelocity does not allow `$indexme` to be a Java array.
 
 ### Undefined references

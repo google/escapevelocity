@@ -39,6 +39,11 @@ class ConstantExpressionNode extends ExpressionNode {
   }
 
   @Override
+  public String toString() {
+    return String.valueOf(value);
+  }
+
+  @Override
   Object evaluate(EvaluationContext context) {
     return value;
   }

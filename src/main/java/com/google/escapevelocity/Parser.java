@@ -16,6 +16,7 @@
 package com.google.escapevelocity;
 
 import com.google.common.base.CharMatcher;
+import com.google.common.base.Joiner;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -474,7 +475,7 @@ class Parser {
     if (c != '"' && c != '\'') {
       throw parseException("#parse only supported with string literal argument");
     }
-    ExpressionNode nestedResourceNameExpression = parseStringLiteral(c, false);
+    ExpressionNode nestedResourceNameExpression = parseStringLiteral((char) c, false);
     String nestedResourceName = nestedResourceNameExpression.evaluate(null).toString();
     expect(')');
     try (Reader nestedReader = resourceOpener.openResource(nestedResourceName)) {
@@ -984,9 +985,9 @@ class Parser {
       next();
       node = parseRequiredReference();
     } else if (c == '"') {
-      node = parseStringLiteral(c, true);
+      node = parseStringLiteral('"', true);
     } else if (c == '\'') {
-      node = parseStringLiteral(c, false);
+      node = parseStringLiteral('\'', false);
     } else if (c == '-') {
       // Velocity does not have a negation operator. If we see '-' it must be the start of a
       // negative integer literal.
@@ -1009,7 +1010,7 @@ class Parser {
    * ({@code expand = true}) can have arbitrary template constructs inside them, such as references,
    * directives like {@code #if}, and macro calls. Single-quote literals really are literal.
    */
-  private ExpressionNode parseStringLiteral(int quote, boolean expand) throws IOException {
+  private ExpressionNode parseStringLiteral(char quote, boolean expand) throws IOException {
     assert c == quote;
     next();
     StringBuilder sb = new StringBuilder();
@@ -1039,15 +1040,22 @@ class Parser {
     } else {
       nodes = ImmutableList.of(new ConstantExpressionNode(resourceName, lineNumber(), s));
     }
-    return new StringLiteralNode(resourceName, lineNumber(), nodes);
+    return new StringLiteralNode(resourceName, lineNumber(), quote, nodes);
   }
 
   private static class StringLiteralNode extends ExpressionNode {
+    private final char quote;
     private final ImmutableList<Node> nodes;
 
-    StringLiteralNode(String resourceName, int lineNumber, ImmutableList<Node> nodes) {
+    StringLiteralNode(String resourceName, int lineNumber, char quote, ImmutableList<Node> nodes) {
       super(resourceName, lineNumber);
+      this.quote = quote;
       this.nodes = nodes;
+    }
+
+    @Override
+    public String toString() {
+      return quote + Joiner.on("").join(nodes) + quote;
     }
 
     @Override

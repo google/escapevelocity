@@ -42,8 +42,22 @@ abstract class ExpressionNode extends Node {
 
   @Override
   final void render(EvaluationContext context, StringBuilder output) {
-    output.append(evaluate(context));
+    Object rendered = evaluate(context);
+    if (rendered == null) {
+      throw evaluationException("Null value for " + this);
+    }
+    output.append(rendered);
   }
+
+  /**
+   * Returns the source form of this node. This may not be exactly how it appears in the template.
+   * For example both {@code $x} and {@code ${x}} end up being the same kind of node, and its
+   * {@code toString()} is {@code "$x"}.
+   *
+   * <p>This method is used in error messages. It is not invoked in normal template evaluation.
+   */
+  @Override
+  public abstract String toString();
 
   /**
    * Returns the result of evaluating this node in the given context. This result may be used as
@@ -102,7 +116,7 @@ abstract class ExpressionNode extends Node {
   int intValue(EvaluationContext context) {
     Object value = evaluate(context);
     if (!(value instanceof Integer)) {
-      throw evaluationException("Arithemtic is only available on integers, not " + show(value));
+      throw evaluationException("Arithmetic is only available on integers, not " + show(value));
     }
     return (Integer) value;
   }
@@ -133,6 +147,22 @@ abstract class ExpressionNode extends Node {
       this.lhs = lhs;
       this.op = op;
       this.rhs = rhs;
+    }
+
+    @Override public String toString() {
+      return operandString(lhs) + " " + op + " " + operandString(rhs);
+    }
+
+    // Restore the parentheses in, for example, (2 + 3) * 4.
+    private String operandString(ExpressionNode operand) {
+      String s = String.valueOf(operand);
+      if (operand instanceof BinaryExpressionNode) {
+        BinaryExpressionNode binaryOperand = (BinaryExpressionNode) operand;
+        if (binaryOperand.op.precedence < op.precedence) {
+          return "(" + s + ")";
+        }
+      }
+      return s;
     }
 
     @Override Object evaluate(EvaluationContext context) {
@@ -212,6 +242,13 @@ abstract class ExpressionNode extends Node {
     NotExpressionNode(ExpressionNode expr) {
       super(expr.resourceName, expr.lineNumber);
       this.expr = expr;
+    }
+
+    @Override public String toString() {
+      if (expr instanceof BinaryExpressionNode) {
+        return "!(" + expr + ")";
+      }
+      return "!" + expr;
     }
 
     @Override Object evaluate(EvaluationContext context) {

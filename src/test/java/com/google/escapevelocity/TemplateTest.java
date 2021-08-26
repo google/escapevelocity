@@ -32,6 +32,7 @@ import java.io.StringWriter;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -134,11 +135,18 @@ public class TemplateTest {
   private void expectException(
       String template,
       String expectedMessageSubstring) {
+    expectException(template, ImmutableMap.of(), expectedMessageSubstring);
+  }
+
+  private void expectException(
+      String template,
+      Map<String, ?> vars,
+      String expectedMessageSubstring) {
     Exception velocityException = null;
     try {
       SimpleNode parsedTemplate =
           velocityRuntimeInstance.parse(new StringReader(template), testName.getMethodName());
-      VelocityContext velocityContext = new VelocityContext(new TreeMap<>());
+      VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
       velocityRuntimeInstance.render(
           velocityContext, new StringWriter(), parsedTemplate.getTemplateName(), parsedTemplate);
       fail("Velocity did not throw an exception for this template");
@@ -147,7 +155,7 @@ public class TemplateTest {
     }
     try {
       Template parsedTemplate = Template.parseFrom(new StringReader(template));
-      parsedTemplate.evaluate(ImmutableMap.of());
+      parsedTemplate.evaluate(vars);
       fail("Velocity generated an exception, but EscapeVelocity did not: " + velocityException);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -245,6 +253,11 @@ public class TemplateTest {
   }
 
   @Test
+  public void substituteUndefinedReference() {
+    expectException("$foo", ImmutableMap.of(), "Undefined reference $foo");
+  }
+
+  @Test
   public void substituteMethodNoArgs() {
     compare("<$c.size()>", ImmutableMap.of("c", ImmutableMap.of()));
   }
@@ -308,6 +321,44 @@ public class TemplateTest {
   }
 
   @Test
+  public void substituteMethodOnNull() {
+    expectException(
+        "$foo.bar()",
+        Collections.singletonMap("foo", null),
+        "In $foo.bar(): $foo must not be null");
+  }
+
+  @Test
+  public void substituteMethodNonExistent() {
+    expectException(
+        "$i.nonExistent($i)",
+        ImmutableMap.of("i", 23),
+        "In $i.nonExistent($i): no method nonExistent in java.lang.Integer");
+  }
+
+  @Test
+  public void substituteMethodWrongArguments() {
+    expectException(
+        "$s.charAt()",
+        ImmutableMap.of("s", ""),
+        "In $s.charAt(): parameters for method charAt have wrong types: []");
+    expectException(
+        "$s.charAt('x')",
+        ImmutableMap.of("s", ""),
+        "In $s.charAt('x'): parameters for method charAt have wrong types: [x]");
+  }
+
+  @Test
+  public void substituteMethodAmbiguous() {
+    // Below, $t.cause is null so this matches the (PrintStream) and the (PrintWriter) overloads.
+    // We don't test the method strings in the error because their exact format is unspecified.
+    expectException(
+        "$t.printStackTrace($t.cause)",
+        ImmutableMap.of("t", new Throwable()),
+        "In $t.printStackTrace($t.cause): ambiguous method invocation, could be one of:");
+  }
+
+  @Test
   public void substituteIndexNoBraces() {
     compare("<$map[\"x\"]>", ImmutableMap.of("map", ImmutableMap.of("x", "y")));
   }
@@ -328,6 +379,93 @@ public class TemplateTest {
   @Test
   public void substituteIndexThenProperty() {
     compare("<$map[2].name>", ImmutableMap.of("map", ImmutableMap.of(2, getClass())));
+  }
+
+  @Test
+  public void substituteNegativeIndex() {
+    // Negative index means n from the end, e.g. -1 is the last element of the list.
+    compare(
+        "$list[-1] $list[-2] $list[-3]",
+        ImmutableMap.of("list", ImmutableList.of("foo", "bar", "baz")));
+  }
+
+  @Test
+  public void substituteIndexOnNull() {
+    expectException(
+        "$foo[23]", Collections.singletonMap("foo", null), "In $foo[23]: $foo must not be null");
+  }
+
+  @Test
+  public void substituteListIndexNotInteger() {
+    expectException(
+        "$list['x']",
+        ImmutableMap.of("list", ImmutableList.of()),
+        "In $list['x']: list index is not an Integer: x");
+    expectException(
+        "$list[$list[0]]",
+        ImmutableMap.of("list", Collections.singletonList(null)),
+        "In $list[$list[0]]: list index is not an Integer: null");
+  }
+
+  @Test
+  public void substituteListIndexOutOfRange() {
+    expectException(
+        "$list[17]",
+        ImmutableMap.of("list", ImmutableList.of("foo")),
+        "In $list[17]: list index 17 is not valid for list of size 1");
+    expectException(
+        "$list[-2]",
+        ImmutableMap.of("list", ImmutableList.of("foo")),
+        "In $list[-2]: negative list index -2 counts from the end of the list, but the list size is"
+            + " only 1");
+  }
+
+  /**
+   * A class with a method that returns null. That means that {@code $x.null} and
+   * {@code $x.getNull()} both return null if {@code $x} is an instance of this class. If that null
+   * ends up being rendered in the output, it should be an error.
+   */
+  public static class NullHolder {
+    public Object getNull() {
+      return null;
+    }
+  }
+
+  /**
+   * Tests that it is an error if a null value gets rendered into the output. This is consistent
+   * with Velocity.
+   *
+   * <p>We also incidentally test the {@code toString()} method of various kinds of
+   * {@link ExpressionNode}. That method is only called for error messages.
+   */
+  @Test
+  public void cantRenderNull() {
+    expectException("$x", Collections.singletonMap("x", null), "Null value for $x");
+    expectException("$x.null", ImmutableMap.of("x", new NullHolder()), "Null value for $x.null");
+    expectException("$x.null", ImmutableMap.of("x", ImmutableMap.of()), "Null value for $x.null");
+    expectException(
+        "$x.getNull()", ImmutableMap.of("x", new NullHolder()), "Null value for $x.getNull()");
+    expectException(
+        "$x['null']", ImmutableMap.of("x", ImmutableMap.of()), "Null value for $x['null']");
+    expectException(
+        "$x[\"null\"]", ImmutableMap.of("x", ImmutableMap.of()), "Null value for $x[\"null\"]");
+    expectException(
+        "$x[2 + 3 == 5 && 5 - 3 != 1]",
+        ImmutableMap.of("x", ImmutableMap.of()),
+        "Null value for $x[2 + 3 == 5 && 5 - 3 != 1]");
+    expectException(
+        "$x[(2 + 3) * (4 + 5)]",
+        ImmutableMap.of("x", ImmutableMap.of()),
+        "Null value for $x[(2 + 3) * (4 + 5)]");
+    expectException(
+        "$x[!(2 == 3 || 4 == 5)]",
+        ImmutableMap.of("x", ImmutableMap.of()),
+        "Null value for $x[!(2 == 3 || 4 == 5)]");
+  }
+
+  @Test
+  public void canEvaluateNull() {
+    compare("#if ($foo == $foo) yes #end", Collections.singletonMap("foo", null));
   }
 
   @Test
