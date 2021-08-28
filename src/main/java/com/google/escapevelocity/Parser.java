@@ -304,16 +304,27 @@ class Parser {
    */
   private Node parseNonDirective() throws IOException {
     if (c == '$') {
-      next();
-      if (isAsciiLetter(c) || c == '{') {
-        return parseReference();
-      } else {
-        return parsePlainText('$');
-      }
+      return parseDollar();
     } else {
       int firstChar = c;
       next();
       return parsePlainText(firstChar);
+    }
+  }
+
+  private Node parseDollar() throws IOException {
+    assert c == '$';
+    next();
+    boolean silent = c == '!';
+    if (silent) {
+      next();
+    }
+    if (isAsciiLetter(c) || c == '{') {
+      return parseReference(silent);
+    } else if (silent) {
+      return parsePlainText("$!");
+    } else {
+      return parsePlainText('$');
     }
   }
 
@@ -621,6 +632,15 @@ class Parser {
     return parsePlainText(sb);
   }
 
+  /**
+   * Parses plain text, which is text that contains neither {@code $} nor {@code #}. The given
+   * {@code initialChars} are the first characters of the plain text, and {@link #c} is the
+   * character after those.
+   */
+  private Node parsePlainText(String initialChars) throws IOException {
+    return parsePlainText(new StringBuilder(initialChars));
+  }
+
   private Node parsePlainText(StringBuilder sb) throws IOException {
     literal:
     while (true) {
@@ -645,23 +665,31 @@ class Parser {
    * {@code ${x}y} is a reference to the variable {@code $x}, followed by the plain text {@code y}.
    * Of course {@code $xy} would be a reference to the variable {@code $xy}.
    * <pre>{@code
-   * <reference> -> $<reference-no-brace> |
-   *                ${<reference-no-brace>}
+   * <reference> -> $<maybe-silent><reference-no-brace> |
+   *                $<maybe-silent>{<reference-no-brace>}
+   * <maybe-silent> -> <empty> | !
    * }</pre>
    *
-   * <p>On entry to this method, {@link #c} is the character immediately after the {@code $}.
+   * <p>On entry to this method, {@link #c} is the character immediately after the {@code $}, or
+   * the {@code !} if there is one.
+   *
+   * @param silent true if this is {@code $!}.
    */
-  private Node parseReference() throws IOException {
+  private Node parseReference(boolean silent) throws IOException {
     if (c == '{') {
       next();
       if (!isAsciiLetter(c)) {
-        return parsePlainText(new StringBuilder("${"));
+        if (silent) {
+          return parsePlainText("$!{");
+        } else {
+          return parsePlainText("${");
+        }
       }
-      ReferenceNode node = parseReferenceNoBrace();
+      ReferenceNode node = parseReferenceNoBrace(silent);
       expect('}');
       return node;
     } else {
-      return parseReferenceNoBrace();
+      return parseReferenceNoBrace(silent);
     }
   }
 
@@ -670,15 +698,21 @@ class Parser {
    * normal text doesn't start a reference if it is not followed by an identifier. But in an
    * expression, for example in {@code #if ($x == 23)}, {@code $} must be followed by an
    * identifier.
+   *
+   * <p>Velocity allows the {@code $!} syntax in these contexts, but it doesn't have any effect
+   * since null values are allowed anyway.
    */
   private ReferenceNode parseRequiredReference() throws IOException {
+    if (c == '!') {
+      next();
+    }
     if (c == '{') {
       next();
-      ReferenceNode node = parseReferenceNoBrace();
+      ReferenceNode node = parseReferenceNoBrace(/* silent= */ false);
       expect('}');
       return node;
     } else {
-      return parseReferenceNoBrace();
+      return parseReferenceNoBrace(/* silent= */ false);
     }
   }
 
@@ -688,10 +722,10 @@ class Parser {
    * <reference-no-brace> -> <id><reference-suffix>
    * }</pre>
    */
-  private ReferenceNode parseReferenceNoBrace() throws IOException {
+  private ReferenceNode parseReferenceNoBrace(boolean silent) throws IOException {
     String id = parseId("Reference");
-    ReferenceNode lhs = new PlainReferenceNode(resourceName, lineNumber(), id);
-    return parseReferenceSuffix(lhs);
+    ReferenceNode lhs = new PlainReferenceNode(resourceName, lineNumber(), id, silent);
+    return parseReferenceSuffix(lhs, silent);
   }
 
   /**
@@ -705,12 +739,12 @@ class Parser {
    * @param lhs the reference node representing the first part of the reference
    *     {@code $x} in {@code $x.foo} or {@code $x.foo()}, or later {@code $x.y} in {@code $x.y.z}.
    */
-  private ReferenceNode parseReferenceSuffix(ReferenceNode lhs) throws IOException {
+  private ReferenceNode parseReferenceSuffix(ReferenceNode lhs, boolean silent) throws IOException {
     switch (c) {
       case '.':
-        return parseReferenceMember(lhs);
+        return parseReferenceMember(lhs, silent);
       case '[':
-        return parseReferenceIndex(lhs);
+        return parseReferenceIndex(lhs, silent);
       default:
         return lhs;
     }
@@ -728,7 +762,7 @@ class Parser {
    * @param lhs the reference node representing what appears to the left of the dot, like the
    *     {@code $x} in {@code $x.foo} or {@code $x.foo()}.
    */
-  private ReferenceNode parseReferenceMember(ReferenceNode lhs) throws IOException {
+  private ReferenceNode parseReferenceMember(ReferenceNode lhs, boolean silent) throws IOException {
     assert c == '.';
     next();
     if (!isAsciiLetter(c)) {
@@ -739,11 +773,11 @@ class Parser {
     String id = parseId("Member");
     ReferenceNode reference;
     if (c == '(') {
-      reference = parseReferenceMethodParams(lhs, id);
+      reference = parseReferenceMethodParams(lhs, id, silent);
     } else {
-      reference = new MemberReferenceNode(lhs, id);
+      reference = new MemberReferenceNode(lhs, id, silent);
     }
-    return parseReferenceSuffix(reference);
+    return parseReferenceSuffix(reference, silent);
   }
 
   /**
@@ -758,7 +792,7 @@ class Parser {
    * @param lhs the reference node representing what appears to the left of the dot, like the
    *     {@code $x} in {@code $x.foo()}.
    */
-  private ReferenceNode parseReferenceMethodParams(ReferenceNode lhs, String id)
+  private ReferenceNode parseReferenceMethodParams(ReferenceNode lhs, String id, boolean silent)
       throws IOException {
     assert c == '(';
     nextNonSpace();
@@ -775,7 +809,7 @@ class Parser {
     }
     assert c == ')';
     next();
-    return new MethodReferenceNode(lhs, id, args.build());
+    return new MethodReferenceNode(lhs, id, args.build(), silent);
   }
 
   /**
@@ -787,7 +821,7 @@ class Parser {
    * @param lhs the reference node representing what appears to the left of the dot, like the
    *     {@code $x} in {@code $x[$i]}.
    */
-  private ReferenceNode parseReferenceIndex(ReferenceNode lhs) throws IOException {
+  private ReferenceNode parseReferenceIndex(ReferenceNode lhs, boolean silent) throws IOException {
     assert c == '[';
     next();
     ExpressionNode index = parseExpression();
@@ -795,8 +829,8 @@ class Parser {
       throw parseException("Expected ]");
     }
     next();
-    ReferenceNode reference = new IndexReferenceNode(lhs, index);
-    return parseReferenceSuffix(reference);
+    ReferenceNode reference = new IndexReferenceNode(lhs, index, silent);
+    return parseReferenceSuffix(reference, silent);
   }
 
   enum Operator {
@@ -831,6 +865,12 @@ class Parser {
     @Override
     public String toString() {
       return symbol;
+    }
+
+    /** True if this is an inequality operator, one of {@code < > <= >=}. */
+    boolean isInequality() {
+      // Slightly hacky way to check.
+      return precedence == 4;
     }
   }
 

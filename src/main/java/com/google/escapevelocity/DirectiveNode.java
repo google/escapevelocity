@@ -114,6 +114,8 @@ abstract class DirectiveNode extends Node {
         iterable = Arrays.asList((Object[]) collectionValue);
       } else if (collectionValue instanceof Map<?, ?>) {
         iterable = ((Map<?, ?>) collectionValue).values();
+      } else if (collectionValue == null) {
+        return;
       } else {
         throw evaluationException("Not iterable: " + collectionValue);
       }

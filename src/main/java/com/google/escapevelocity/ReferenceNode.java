@@ -35,8 +35,15 @@ import java.util.Optional;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 abstract class ReferenceNode extends ExpressionNode {
-  ReferenceNode(String resourceName, int lineNumber) {
+  final boolean silent;
+
+  ReferenceNode(String resourceName, int lineNumber, boolean silent) {
     super(resourceName, lineNumber);
+    this.silent = silent;
+  }
+
+  @Override boolean isSilent() {
+    return silent;
   }
 
   EvaluationException evaluationExceptionInThis(String message) {
@@ -50,8 +57,8 @@ abstract class ReferenceNode extends ExpressionNode {
   static class PlainReferenceNode extends ReferenceNode {
     final String id;
 
-    PlainReferenceNode(String resourceName, int lineNumber, String id) {
-      super(resourceName, lineNumber);
+    PlainReferenceNode(String resourceName, int lineNumber, String id, boolean silent) {
+      super(resourceName, lineNumber, silent);
       this.id = id;
     }
 
@@ -85,8 +92,8 @@ abstract class ReferenceNode extends ExpressionNode {
     final ReferenceNode lhs;
     final String id;
 
-    MemberReferenceNode(ReferenceNode lhs, String id) {
-      super(lhs.resourceName, lhs.lineNumber);
+    MemberReferenceNode(ReferenceNode lhs, String id, boolean silent) {
+      super(lhs.resourceName, lhs.lineNumber, silent);
       this.lhs = lhs;
       this.id = id;
     }
@@ -156,8 +163,8 @@ abstract class ReferenceNode extends ExpressionNode {
     final ReferenceNode lhs;
     final ExpressionNode index;
 
-    IndexReferenceNode(ReferenceNode lhs, ExpressionNode index) {
-      super(lhs.resourceName, lhs.lineNumber);
+    IndexReferenceNode(ReferenceNode lhs, ExpressionNode index, boolean silent) {
+      super(lhs.resourceName, lhs.lineNumber, silent);
       this.lhs = lhs;
       this.index = index;
     }
@@ -201,7 +208,8 @@ abstract class ReferenceNode extends ExpressionNode {
       } else {
         // In general, $x[$y] is equivalent to $x.get($y). We've covered the most common cases
         // above, but for other cases like Multimap we resort to evaluating the equivalent form.
-        MethodReferenceNode node = new MethodReferenceNode(lhs, "get", ImmutableList.of(index));
+        MethodReferenceNode node =
+            new MethodReferenceNode(lhs, "get", ImmutableList.of(index), silent);
         return node.evaluate(context);
       }
     }
@@ -215,8 +223,8 @@ abstract class ReferenceNode extends ExpressionNode {
     final String id;
     final List<ExpressionNode> args;
 
-    MethodReferenceNode(ReferenceNode lhs, String id, List<ExpressionNode> args) {
-      super(lhs.resourceName, lhs.lineNumber);
+    MethodReferenceNode(ReferenceNode lhs, String id, List<ExpressionNode> args, boolean silent) {
+      super(lhs.resourceName, lhs.lineNumber, silent);
       this.lhs = lhs;
       this.id = id;
       this.args = args;

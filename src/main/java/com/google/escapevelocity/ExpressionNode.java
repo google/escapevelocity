@@ -44,6 +44,9 @@ abstract class ExpressionNode extends Node {
   final void render(EvaluationContext context, StringBuilder output) {
     Object rendered = evaluate(context);
     if (rendered == null) {
+      if (isSilent()) { // $!foo for example
+        return;
+      }
       throw evaluationException("Null value for " + this);
     }
     output.append(rendered);
@@ -108,13 +111,24 @@ abstract class ExpressionNode extends Node {
   }
 
   /**
-   * The integer result of evaluating this expression.
+   * True if a null value for this expression is silently translated to an empty string when
+   * substituted into template text. Otherwise it results in an exception.
+   */
+  boolean isSilent() {
+    return false;
+  }
+
+  /**
+   * The integer result of evaluating this expression, or null if the expression evaluates to null.
    *
    * @throws EvaluationException if evaluating the expression produces an exception, or if it
-   *     yields a value that is not an integer.
+   *     yields a value that is neither an integer nor null.
    */
-  int intValue(EvaluationContext context) {
+  Integer intValue(EvaluationContext context) {
     Object value = evaluate(context);
+    if (value == null) {
+      return null;
+    }
     if (!(value instanceof Integer)) {
       throw evaluationException("Arithmetic is only available on integers, not " + show(value));
     }
@@ -177,8 +191,11 @@ abstract class ExpressionNode extends Node {
           return !equal(context);
         default: // fall out
       }
-      int lhsInt = lhs.intValue(context);
-      int rhsInt = rhs.intValue(context);
+      Integer lhsInt = lhs.intValue(context);
+      Integer rhsInt = rhs.intValue(context);
+      if (lhsInt == null || rhsInt == null) {
+        return nullOperand(lhsInt == null);
+      }
       switch (op) {
         case LESS:
           return lhsInt < rhsInt;
@@ -195,12 +212,22 @@ abstract class ExpressionNode extends Node {
         case TIMES:
           return lhsInt * rhsInt;
         case DIVIDE:
-          return lhsInt / rhsInt;
+          return (rhsInt == 0) ? null : lhsInt / rhsInt;
         case REMAINDER:
           return lhsInt % rhsInt;
         default:
           throw new AssertionError(op);
       }
+    }
+
+    // Mimic Velocity's null-handling.
+    private Void nullOperand(boolean leftIsNull) {
+      if (op.isInequality()) {
+        // If both are null we'll only complain about the left one.
+        String operand = leftIsNull ? "Left operand " + lhs : "Right operand " + rhs;
+        throw evaluationException(operand + " of " + op + " must not be null");
+      }
+      return null;
     }
 
     /**

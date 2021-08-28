@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.fail;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -34,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -225,6 +227,7 @@ public class TemplateTest {
     // The first $ is plain text and the second one starts a reference.
     compare(" $$foo ", ImmutableMap.of("foo", true));
     compare(" $${foo} ", ImmutableMap.of("foo", true));
+    compare(" $!$foo ", ImmutableMap.of("foo", true));
   }
 
   @Test
@@ -240,6 +243,12 @@ public class TemplateTest {
   @Test
   public void substitutePropertyWithBraces() {
     compare("=${t.name}=", ImmutableMap.of("t", Thread.currentThread()));
+  }
+
+  @Test
+  public void braceNotFollowedById() {
+    compare("${??");
+    compare("$!{??");
   }
 
   @Test
@@ -555,6 +564,49 @@ public class TemplateTest {
   }
 
   @Test
+  public void divideByZeroIsNull() {
+    Map<String, Object> vars = new TreeMap<>();
+    vars.put("null", null);
+    Number[] values = {-1, 0, 23, Integer.MAX_VALUE};
+    for (Number value : values) {
+      vars.put("value", value);
+      compare("#set ($x = $value / 0) #if ($x == $null) null #else $x #end", vars);
+    }
+  }
+
+  @Test
+  public void arithmeticOperationsOnNullAreNull() {
+    String template =
+        Joiner.on('\n')
+            .join(
+                "#macro (nulltest $x) #if ($x == $null) is #else not #end null #end",
+                "#nulltest($null)",
+                "#nulltest('not null')",
+                "#set ($x = 1 + $null) #nulltest($x)",
+                "#set ($x = $null - 1) #nulltest($x)",
+                "#set ($x = $null * $null) #nulltest($x)",
+                "#set ($x = $null / $null) #nulltest($x)",
+                "#set ($x = 3 / $null) #nulltest($x)",
+                "#set ($x = $null / 3) #nulltest($x)");
+    compare(template, Collections.singletonMap("null", null));
+  }
+
+  @Test
+  public void comparisonsOnNullFail() {
+    Map<String, Object> vars = new TreeMap<>();
+    vars.put("foo", null);
+    vars.put("bar", null);
+    expectException(
+        "#if ($foo < 1) null < 1 #end", vars, "Left operand $foo of < must not be null");
+    expectException(
+        "#if (1 < $foo) 1 < null #end", vars, "Right operand $foo of < must not be null");
+    expectException(
+        "#if ($foo < $bar) null < null #end", vars, "Left operand $foo of < must not be null");
+    expectException(
+        "#if ($foo >= $bar) null >= null #end", vars, "Left operand $foo of >= must not be null");
+  }
+
+  @Test
   public void associativity() {
     compare("#set ($x = 3 - 2 - 1) $x");
     compare("#set ($x = 16 / 4 / 4) $x");
@@ -712,6 +764,13 @@ public class TemplateTest {
         ImmutableMap.of("c", new String[] {"foo", "bar", "baz"}));
     compare("x#foreach ($x in $c) <$x> #end y",
         ImmutableMap.of("c", ImmutableMap.of("foo", "bar", "baz", "buh")));
+  }
+
+  @Test
+  public void forEachNull() {
+    // Bizarrely, Velocity allows you to iterate on null, with no effect.
+    Map<String, Object> vars = Collections.singletonMap("null", null);
+    compare("#foreach ($x in $null) $x #end", vars);
   }
 
   @Test
@@ -1004,6 +1063,59 @@ public class TemplateTest {
   @Test
   public void unclosedBlockComment() {
     compare("foo\nbar #*\nblah\nblah");
+  }
+
+  @Test
+  public void nullReference() throws IOException {
+    Map<String, Object> vars = Collections.singletonMap("foo", null);
+    expectException("==$foo==", vars, "Null value for $foo");
+    compare("==$!foo==", vars);
+  }
+
+  @Test
+  public void nullMethodCall() throws IOException {
+    Map<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
+    expectException("==$map.get(23)==", vars, "Null value for $map.get(23)");
+    compare("==$!map.get(23)==", vars);
+  }
+
+  @Test
+  public void nullIndex() throws IOException {
+    Map<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
+    expectException("==$map[23]==", vars, "Null value for $map[23]");
+    compare("==$!map[23]==", vars);
+  }
+
+  @Test
+  public void ifNull() throws IOException {
+    // Null references in #if mean false.
+    Map<String, Object> vars = Collections.singletonMap("nullRef", null);
+    compare("#if ($nullRef) oops #end", vars);
+  }
+
+  @Test
+  public void nullProperty() throws IOException {
+    // We use a LinkedList with a null element so that list.getFirst() will return null. Then
+    // $list.first is a null reference.
+    @SuppressWarnings("JdkObsolete")
+    LinkedList<String> list = new LinkedList<>();
+    list.add(null);
+    Map<String, Object> vars = ImmutableMap.of("list", list);
+    expectException("==$list.first==", vars, "Null value for $list.first");
+    compare("==$!list.first==", vars);
+  }
+
+  @Test
+  public void silentRefInDirective() throws IOException {
+    Map<String, Object> vars = new TreeMap<>();
+    vars.put("null", null);
+    compare("#if ($!null == '') yes #end", vars);
+  }
+
+  @Test
+  public void silentRefInString() throws IOException {
+    Map<String, Object> vars = Collections.singletonMap("null", null);
+    compare("#set ($nuller = \"$!{null}er\") $nuller", vars);
   }
 
   /**

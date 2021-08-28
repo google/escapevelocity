@@ -92,7 +92,7 @@ EscapeVelocity supports most of the reference types described in the
 ### Variables
 
 A variable has an ASCII name that starts with a letter (a-z or A-Z) and where any other characters
-are also letters or digits or hyphens (-) or underscores (_). A variable reference can be written
+are also letters or digits or hyphens (-) or underscores (`_`). A variable reference can be written
 as `$foo` or as `${foo}`. The value of a variable can be of any Java type. If the value `v` of
 variable `foo` is not a String then the result of `$foo` in a template will be `String.valueOf(v)`.
 Variables must be defined before they are referenced; otherwise an `EvaluationException` will be
@@ -157,6 +157,14 @@ If a variable has not been given a value, either by being in the initial Map arg
 set in the template, then referencing it will provoke an `EvaluationException`. There is
 a special case for `#if`: if you write `#if ($var)` then it is allowed for `$var` not to be defined,
 and it is treated as false.
+
+### Null references
+
+A reference can produce a null value, for example `$foo` if the input `Map` has an entry for `"foo"`
+with a null value, or `$indexme[$i]` if `$indexme` is a `List` that has a null element at index
+`$i`. If you try to insert a null reference into the output of a template then you will get an
+exception. If you use `$!` instead of `$`, like `$!foo` or `$!indexme[$i]`, then a null reference
+will instead produce nothing in the output.
 
 ### Setting properties and indexes: not supported
 
