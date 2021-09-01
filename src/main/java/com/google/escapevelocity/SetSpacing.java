@@ -15,6 +15,7 @@
  */
 package com.google.escapevelocity;
 
+import com.google.common.collect.Iterables;
 import com.google.escapevelocity.DirectiveNode.SetNode;
 import com.google.escapevelocity.Parser.CommentNode;
 import java.util.List;
@@ -36,12 +37,22 @@ final class SetSpacing {
    * is a comment ({@code ##...\n}); a reference ({@code $x} or {@code $x.foo} etc); or another
    * {@code #set}. Spaces are also removed before {@code #set} at the start of a macro definition,
    * but that is implemented by calling {@link #removeInitialSpaceBeforeSet}.
+   *
+   * <p>The whitespace in question can include newlines, except when <i>thing</i> is a reference.
    */
-  static void removeSpaceBeforeSet(List<Node> nodes) {
-    if (nodes.size() >= 2 && nodes.get(nodes.size() - 1).isWhitespace()
-            && shouldDeleteSpaceBetweenThisAndSet(nodes.get(nodes.size() - 2))) {
-      nodes.remove(nodes.size() - 1);
+  static boolean shouldRemoveLastNodeBeforeSet(List<Node> nodes) {
+    if (nodes.size() < 2) {
+      return false;
     }
+    Node potentialSpaceBeforeSet = Iterables.getLast(nodes);
+    Node beforeSpace = nodes.get(nodes.size() - 2);
+    if (beforeSpace instanceof ReferenceNode) {
+      return potentialSpaceBeforeSet.isHorizontalWhitespace();
+    }
+    if (beforeSpace instanceof CommentNode || beforeSpace instanceof DirectiveNode) {
+      return potentialSpaceBeforeSet.isWhitespace();
+    }
+    return false;
   }
 
   static List<Node> removeInitialSpaceBeforeSet(List<Node> nodes) {
@@ -49,11 +60,5 @@ final class SetSpacing {
       return nodes.subList(1, nodes.size());
     }
     return nodes;
-  }
-
-  private static boolean shouldDeleteSpaceBetweenThisAndSet(Node node) {
-    return node instanceof CommentNode
-        || node instanceof ReferenceNode
-        || node instanceof SetNode;
   }
 }

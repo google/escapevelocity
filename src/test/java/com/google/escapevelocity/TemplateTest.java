@@ -823,13 +823,22 @@ public class TemplateTest {
   @Test
   public void setSpacing() {
     // The spacing in the output from #set is eccentric.
+    // If the #set is preceded by a reference, with only horizontal space intervening, that space
+    // is deleted. But if there are newlines, nothing is deleted.
+    // If the #set is preceded by a directive (for example another #set), with only whitespace
+    // intervening, that whitespace is deleted. That includes newlines.
     compare("x#set ($x = 0)x");
     compare("x #set ($x = 0)x");
     compare("x #set ($x = 0) x");
     compare("$x#set ($x = 0)x", ImmutableMap.of("x", "!"));
+    compare("x#set ($foo = 'bar')\n#set ($baz = 'buh')\n!");
+    compare("x#if (1 + 1 == 2) ok #else ? #end\n#set ($foo = 'bar')\ny");
+    compare("x#if (1 + 1 == 2) ok #else ? #end  #set ($foo = 'bar')\ny");
 
-    // Velocity WTF: the #set eats the space after $x and other references, so the output is <!x>.
     compare("$x  #set ($x = 0)x", ImmutableMap.of("x", "!"));
+    compare("$x\n#set ($x = 0)x", ImmutableMap.of("x", "!"));
+    compare("#set($x = 0)\n#set($y = 1)\n<$x$y>");
+    compare("#set($x = 0)\n  #set($y = 1)\n<$x$y>");
     compare("$x.length()  #set ($x = 0)x", ImmutableMap.of("x", "!"));
     compare("$x.empty  #set ($x = 0)x", ImmutableMap.of("x", "!"));
     compare("$x[0]  #set ($x = 0)x", ImmutableMap.of("x", ImmutableList.of("!")));
@@ -840,7 +849,10 @@ public class TemplateTest {
 
     compare("x ## comment\n  #set($x = 0)  y");
     compare("x #* comment *#    #set($x = 0)  y");
+    compare("$list.size()\n#set ($foo = 'bar')\n!", ImmutableMap.of("list", ImmutableList.of()));
+    compare("$list[0]\n  #set ($foo = 'bar')\n!", ImmutableMap.of("list", ImmutableList.of("x")));
   }
+
 
   @Test
   public void simpleMacro() {

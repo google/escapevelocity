@@ -31,6 +31,8 @@ import com.google.common.base.CharMatcher;
  * @author emcmanus@google.com (Éamonn McManus)
  */
 class ConstantExpressionNode extends ExpressionNode {
+  private static final CharMatcher HORIZONTAL_SPACE =
+      CharMatcher.whitespace().and(CharMatcher.noneOf("\r\n")).precomputed();
   private final Object value;
 
   ConstantExpressionNode(String resourceName, int lineNumber, Object value) {
@@ -51,5 +53,10 @@ class ConstantExpressionNode extends ExpressionNode {
   @Override
   boolean isWhitespace() {
     return value instanceof String && CharMatcher.whitespace().matchesAllOf((String) value);
+  }
+
+  @Override
+  boolean isHorizontalWhitespace() {
+    return value instanceof String && HORIZONTAL_SPACE.matchesAllOf((String) value);
   }
 }

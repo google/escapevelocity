@@ -209,10 +209,11 @@ class Parser {
       if (node instanceof StopNode) {
         break;
       }
-      if (node instanceof SetNode) {
-        SetSpacing.removeSpaceBeforeSet(nodes);
+      if (node instanceof SetNode && SetSpacing.shouldRemoveLastNodeBeforeSet(nodes)) {
+        nodes.set(nodes.size() - 1, node);
+      } else {
+        nodes.add(node);
       }
-      nodes.add(node);
     }
     StopNode stop = (StopNode) node;
     if (!stopClasses.contains(stop.getClass())) {

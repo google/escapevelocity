@@ -43,6 +43,11 @@ abstract class Node {
     return false;
   }
 
+  /** True if this node is just a span of horizontal whitespace in the text. */
+  boolean isHorizontalWhitespace() {
+    return false;
+  }
+
   private String where() {
     String where = "In expression on line " + lineNumber;
     if (resourceName != null) {
