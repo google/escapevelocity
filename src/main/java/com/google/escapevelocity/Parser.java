@@ -786,8 +786,8 @@ class Parser {
    * <pre>{@code
    * <method-parameter-list> -> <empty> |
    *                            <non-empty-method-parameter-list>
-   * <non-empty-method-parameter-list> -> <expression> |
-   *                                      <expression> , <non-empty-method-parameter-list>
+   * <non-empty-method-parameter-list> -> <primary> |
+   *                                      <primary> , <non-empty-method-parameter-list>
    * }</pre>
    *
    * @param lhs the reference node representing what appears to the left of the dot, like the
@@ -799,10 +799,10 @@ class Parser {
     nextNonSpace();
     ImmutableList.Builder<ExpressionNode> args = ImmutableList.builder();
     if (c != ')') {
-      args.add(parseExpression());
+      args.add(parsePrimary(/* nullAllowed= */ true));
       while (c == ',') {
         nextNonSpace();
-        args.add(parseExpression());
+        args.add(parsePrimary(/* nullAllowed= */ true));
       }
       if (c != ')') {
         throw parseException("Expected )");
@@ -814,9 +814,9 @@ class Parser {
   }
 
   /**
-   * Parses an index suffix to a method, like {@code $x[$i]}.
+   * Parses an index suffix to a reference, like {@code $x[$i]}.
    * <pre>{@code
-   * <reference-index> -> [ <expression> ]
+   * <reference-index> -> [ <primary> ]
    * }</pre>
    *
    * @param lhs the reference node representing what appears to the left of the dot, like the
@@ -825,7 +825,7 @@ class Parser {
   private ReferenceNode parseReferenceIndex(ReferenceNode lhs, boolean silent) throws IOException {
     assert c == '[';
     next();
-    ExpressionNode index = parseExpression();
+    ExpressionNode index = parsePrimary();
     if (c != ']') {
       throw parseException("Expected ]");
     }
@@ -891,8 +891,9 @@ class Parser {
   }
 
   /**
-   * Parses an expression, which can occur within a directive like {@code #if} or {@code #set},
-   * or within a reference like {@code $x[$a + $b]} or {@code $x.m($a + $b)}.
+   * Parses an expression, which can occur within a directive like {@code #if} or {@code #set}.
+   * Arbitrary expressions <i>can't</i> appear within a reference like {@code $x[$a + $b]} or
+   * {@code $x.m($a + $b)}, consistent with Velocity.
    * <pre>{@code
    * <expression> -> <and-expression> |
    *                 <expression> || <and-expression>
@@ -1021,6 +1022,11 @@ class Parser {
    * }</pre>
    */
   private ExpressionNode parsePrimary() throws IOException {
+    return parsePrimary(false);
+  }
+
+  private ExpressionNode parsePrimary(boolean nullAllowed) throws IOException {
+    skipSpace();
     ExpressionNode node;
     if (c == '$') {
       next();
@@ -1037,9 +1043,9 @@ class Parser {
     } else if (isAsciiDigit(c)) {
       node = parseIntLiteral("");
     } else if (isAsciiLetter(c)) {
-      node = parseBooleanLiteral();
+      node = parseBooleanOrNullLiteral(nullAllowed);
     } else {
-      throw parseException("Expected an expression");
+      throw parseException("Expected a reference or a literal");
     }
     skipSpace();
     return node;
@@ -1123,19 +1129,30 @@ class Parser {
   }
 
   /**
-   * Parses a boolean literal, either {@code true} or {@code false}.
-   * <boolean-literal> -> true |
-   *                      false
+   * Parses a boolean literal, either {@code true} or {@code false}. Also allows {@code null}, but
+   * only if {@code nullAllowed} is true. Velocity allows {@code null} as a method parameter but not
+   * anywhere else.
    */
-  private ExpressionNode parseBooleanLiteral() throws IOException {
-    String s = parseId("Identifier without $");
-    boolean value;
-    if (s.equals("true")) {
-      value = true;
-    } else if (s.equals("false")) {
-      value = false;
-    } else {
-      throw parseException("Identifier in expression must be preceded by $ or be true or false");
+  private ExpressionNode parseBooleanOrNullLiteral(boolean nullAllowed) throws IOException {
+    String id = parseId("Identifier without $");
+    Object value;
+    switch (id) {
+      case "true":
+        value = true;
+        break;
+      case "false":
+        value = false;
+        break;
+      case "null":
+        if (nullAllowed) {
+          value = null;
+          break;
+        }
+        // fall through...
+      default:
+        String suffix = nullAllowed ? " or null" : "";
+        throw parseException(
+            "Identifier must be preceded by $ or be true or false" + suffix + ": " + id);
     }
     return new ConstantExpressionNode(resourceName, lineNumber(), value);
   }

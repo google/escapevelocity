@@ -137,6 +137,16 @@ Properties are in fact a special case of methods: instead of writing `$purchase.
 write `$purchase.getTotal()`. Braces can be used to make the method invocation explicit
 (`${purchase.getTotal()}`) or to prevent method invocation (`${purchase}.getTotal()`).
 
+If the object that the method is being called on is an instance of `java.lang.Class`, then the
+method can be one of the methods of `java.lang.Class`, _or_ it can be a static method in the
+class in question. For example if `$Objects` is `java.util.Objects.class`, then
+`$Objects.equals($a, $b)` will invoke the static method
+[`java.util.Objects.equals`](https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/util/Objects.html#equals(java.lang.Object,java.lang.Object))
+with the given parameters.
+
+A method parameter can be `null` to indicate a null value. For example
+`$Objects.equals(null, null)` would evaluate to `true`, given the above definition of `$Objects`.
+
 ### Indexing
 
 If a reference looks like `$indexme[$i]` then the value of the `$indexme` variable must be a Java

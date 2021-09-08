@@ -214,7 +214,7 @@ abstract class ExpressionNode extends Node {
         case DIVIDE:
           return (rhsInt == 0) ? null : lhsInt / rhsInt;
         case REMAINDER:
-          return lhsInt % rhsInt;
+          return (rhsInt == 0) ? null : lhsInt % rhsInt;
         default:
           throw new AssertionError(op);
       }

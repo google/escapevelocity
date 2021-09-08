@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -283,13 +284,17 @@ public class TemplateTest {
 
   @Test
   public void substituteMethodOneNullArg() {
-    // This should evaluate map.containsKey(map.get("absent")), which is map.containsKey(null).
-    compare("<$map.containsKey($map.get(\"absent\"))>", ImmutableMap.of("map", ImmutableMap.of()));
+    compare("<$map.containsKey( null )>", ImmutableMap.of("map", ImmutableMap.of()));
   }
 
   @Test
   public void substituteMethodTwoArgs() {
     compare("\n$s.indexOf(\"bar\", 2)\n", ImmutableMap.of("s", "barbarbar"));
+  }
+
+  @Test
+  public void substituteMethodExpressionArg() {
+    expectException("$sb.append(2 + 3) $sb", "Expected )");
   }
 
   @Test
@@ -302,6 +307,15 @@ public class TemplateTest {
   @Test
   public void substituteStaticMethod() {
     compare("$Integer.toHexString(23)", ImmutableMap.of("Integer", Integer.class));
+  }
+
+  @Test
+  public void substituteMethodNullLiteral() {
+    // Velocity recognizes the null literal, but only in this exact spot, as a method parameter.
+    // You can't say `#set($foo = null)` for example. Why not? Because.
+    compare(
+        "<$Objects.isNull(null) <$Objects.equals(null, null)>",
+        ImmutableMap.of("Objects", Objects.class));
   }
 
   @Test
@@ -359,22 +373,39 @@ public class TemplateTest {
 
   @Test
   public void substituteMethodAmbiguous() {
-    // Below, $t.cause is null so this matches the (PrintStream) and the (PrintWriter) overloads.
+    // Below, the null argument matches the (PrintStream) and the (PrintWriter) overloads.
     // We don't test the method strings in the error because their exact format is unspecified.
     expectException(
-        "$t.printStackTrace($t.cause)",
+        "$t.printStackTrace(null)",
         ImmutableMap.of("t", new Throwable()),
-        "In $t.printStackTrace($t.cause): ambiguous method invocation, could be one of:");
+        "In $t.printStackTrace(null): ambiguous method invocation, could be one of:");
   }
 
   @Test
   public void substituteIndexNoBraces() {
     compare("<$map[\"x\"]>", ImmutableMap.of("map", ImmutableMap.of("x", "y")));
+    compare("<$map[ \"x\" ]>", ImmutableMap.of("map", ImmutableMap.of("x", "y")));
   }
 
   @Test
   public void substituteIndexWithBraces() {
     compare("<${map[\"x\"]}>", ImmutableMap.of("map", ImmutableMap.of("x", "y")));
+  }
+
+  @Test
+  public void substituteIndexNull() {
+    // Velocity allows null literals in method parameters but not indexes.
+    expectException(
+        "<$map[null]>",
+        ImmutableMap.of("map", ImmutableMap.of()),
+        "Identifier must be preceded by $");
+  }
+
+  @Test
+  public void substituteIndexExpression() {
+    // For no good reason, Velocity doesn't allow arbitrary expressions in indexes, so
+    // EscapeVelocity doesn't either.
+    expectException("<$map[2 + 3]>", "Expected ]");
   }
 
   // Velocity allows you to write $map.foo instead of $map["foo"].
@@ -443,9 +474,6 @@ public class TemplateTest {
   /**
    * Tests that it is an error if a null value gets rendered into the output. This is consistent
    * with Velocity.
-   *
-   * <p>We also incidentally test the {@code toString()} method of various kinds of
-   * {@link ExpressionNode}. That method is only called for error messages.
    */
   @Test
   public void cantRenderNull() {
@@ -458,18 +486,6 @@ public class TemplateTest {
         "$x['null']", ImmutableMap.of("x", ImmutableMap.of()), "Null value for $x['null']");
     expectException(
         "$x[\"null\"]", ImmutableMap.of("x", ImmutableMap.of()), "Null value for $x[\"null\"]");
-    expectException(
-        "$x[2 + 3 == 5 && 5 - 3 != 1]",
-        ImmutableMap.of("x", ImmutableMap.of()),
-        "Null value for $x[2 + 3 == 5 && 5 - 3 != 1]");
-    expectException(
-        "$x[(2 + 3) * (4 + 5)]",
-        ImmutableMap.of("x", ImmutableMap.of()),
-        "Null value for $x[(2 + 3) * (4 + 5)]");
-    expectException(
-        "$x[!(2 == 3 || 4 == 5)]",
-        ImmutableMap.of("x", ImmutableMap.of()),
-        "Null value for $x[!(2 == 3 || 4 == 5)]");
   }
 
   @Test
@@ -489,7 +505,7 @@ public class TemplateTest {
 
   @Test
   public void variableNameCharacters() {
-    compare("<AZaz-foo_bar23>", ImmutableMap.of("AZaz-foo_bar23", "(P)"));
+    compare("<${AZaz-foo_bar23}>", ImmutableMap.of("AZaz-foo_bar23", "(P)"));
   }
 
   /**
@@ -571,6 +587,7 @@ public class TemplateTest {
     for (Number value : values) {
       vars.put("value", value);
       compare("#set ($x = $value / 0) #if ($x == $null) null #else $x #end", vars);
+      compare("#set ($x = $value % 0) #if ($x == $null) null #else $x #end", vars);
     }
   }
 
