@@ -675,6 +675,40 @@ public class TemplateTest {
     compare("#set ($x = " + Integer.MIN_VALUE + ") $x");
   }
 
+  @Test
+  public void listLiterals() {
+    compare("#set ($list = []) $list");
+    compare("#set ($list = ['a', 'b', 'c']) $list");
+    compare("#set ($list = [ 1,2,3 ] ) $list");
+    compare("#foreach ($x in [$a, $b]) $x #end", ImmutableMap.of("a", 5, "b", 3));
+    compare("#set ($list = [ $null, $null ]) $list.size()", Collections.singletonMap("null", null));
+    // Like Velocity, we don't accept general expressions here.
+    expectException("#set ($list = [2 + 3])", "Expected ] at end of list literal");
+    // Test the toString():
+    expectException(
+        "$map[[1, 2, 3]]",
+        ImmutableMap.of("map", ImmutableMap.of()),
+        "Null value for $map[[1, 2, 3]]");
+  }
+
+  @Test
+  public void rangeLiterals() {
+    compare("#set ($range = [1..5]) $range");
+    compare("#set ($range = [5 .. 1]) $range");
+    compare("#foreach ($x in [-1 .. 5]) $x #end");
+    compare("#foreach ($x in [5..-1]) $x #end");
+    compare("#foreach ($x in [$a..$b]) $x #end", ImmutableMap.of("a", 3, "b", 5));
+    expectException("#set ($range = ['foo'..'bar'])", "Arithmetic is only available on integers");
+    // Like Velocity, we don't accept general expressions here.
+    expectException("#set ($list = [2 * 3 .. 10])", "Expected ] at end of list literal");
+    expectException("#set ($list = [10 .. 2 * 3])", "Expected ] at end of range literal");
+    // Test the toString():
+    expectException(
+        "$map[[1..3]]",
+        ImmutableMap.of("map", ImmutableMap.of()),
+        "Null value for $map[[1..3]]");
+  }
+
   private static final String[] RELATIONS = {"==", "!=", "<", ">", "<=", ">="};
 
   @Test

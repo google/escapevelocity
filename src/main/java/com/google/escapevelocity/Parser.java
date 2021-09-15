@@ -18,10 +18,13 @@ package com.google.escapevelocity;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Verify;
+import com.google.common.collect.ContiguousSet;
+import com.google.common.collect.ForwardingSortedSet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
@@ -43,6 +46,7 @@ import java.io.LineNumberReader;
 import java.io.Reader;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -1018,7 +1022,8 @@ class Parser {
    * <primary> -> <reference> |
    *              <string-literal> |
    *              <integer-literal> |
-   *              <boolean-literal>
+   *              <boolean-literal> |
+   *              <list-literal>
    * }</pre>
    */
   private ExpressionNode parsePrimary() throws IOException {
@@ -1040,6 +1045,8 @@ class Parser {
       // negative integer literal.
       next();
       node = parseIntLiteral("-");
+    } else if (c == '[') {
+      node = parseListLiteral();
     } else if (isAsciiDigit(c)) {
       node = parseIntLiteral("");
     } else if (isAsciiLetter(c)) {
@@ -1049,6 +1056,126 @@ class Parser {
     }
     skipSpace();
     return node;
+  }
+
+  /**
+   * Parses a list or range literal.
+   *
+   * <pre>{@code
+   * <list-literal> -> <empty-list> | <non-empty-list>
+   * <empty-list> -> [ ]
+   * <non-empty-list> -> [ <primary> <list-end>
+   * <list-end> -> <range-end> | <remainder-of-list-literal>
+   * <range-end> -> .. <primary> ]
+   * <remainder-of-list-literal> -> <end-of-list> | , <primary> <remainder-of-list-literal>
+   * <end-of-list> -> ]
+   * }</pre>
+   */
+  private ExpressionNode parseListLiteral() throws IOException {
+    assert c == '[';
+    nextNonSpace();
+    if (c == ']') {
+      next();
+      return new ListLiteralNode(resourceName, lineNumber(), ImmutableList.of());
+    }
+    ExpressionNode first = parsePrimary(false);
+    if (c == '.') {
+      return parseRangeLiteral(first);
+    } else {
+      return parseRemainderOfListLiteral(first);
+    }
+  }
+
+  private ExpressionNode parseRangeLiteral(ExpressionNode first) throws IOException {
+    assert c == '.';
+    next();
+    if (c != '.') {
+      throw parseException("Expected two dots (..) not just one");
+    }
+    nextNonSpace();
+    ExpressionNode last = parsePrimary(false);
+    if (c != ']') {
+      throw parseException("Expected ] at end of range literal");
+    }
+    nextNonSpace();
+    return new RangeLiteralNode(resourceName, lineNumber(), first, last);
+  }
+
+  private ExpressionNode parseRemainderOfListLiteral(ExpressionNode first) throws IOException {
+    ImmutableList.Builder<ExpressionNode> builder = ImmutableList.builder();
+    builder.add(first);
+    while (c == ',') {
+      next();
+      builder.add(parsePrimary(false));
+    }
+    if (c != ']') {
+      throw parseException("Expected ] at end of list literal");
+    }
+    next();
+    return new ListLiteralNode(resourceName, lineNumber(), builder.build());
+  }
+
+  private static class RangeLiteralNode extends ExpressionNode {
+    private final ExpressionNode first;
+    private final ExpressionNode last;
+
+    RangeLiteralNode(
+        String resourceName, int lineNumber, ExpressionNode first, ExpressionNode last) {
+      super(resourceName, lineNumber);
+      this.first = first;
+      this.last = last;
+    }
+
+    @Override
+    public String toString() {
+      return "[" + first + ".." + last + "]";
+    }
+
+    @Override
+    Object evaluate(EvaluationContext context) {
+      int from = first.intValue(context);
+      int to = last.intValue(context);
+      ImmutableSortedSet<Integer> set =
+          (from <= to)
+              ? ContiguousSet.closed(from, to)
+              : ContiguousSet.closed(to, from).descendingSet();
+      return new ForwardingSortedSet<Integer>() {
+        @Override
+        protected ImmutableSortedSet<Integer> delegate() {
+          return set;
+        }
+
+        @Override
+        public String toString() {
+          // ContiguousSet returns [1..3] whereas Velocity uses [1, 2, 3].
+          return set.asList().toString();
+        }
+      };
+    }
+  }
+
+  private static class ListLiteralNode extends ExpressionNode {
+    private final ImmutableList<ExpressionNode> elements;
+
+    ListLiteralNode(String resourceName, int lineNumber, ImmutableList<ExpressionNode> elements) {
+      super(resourceName, lineNumber);
+      this.elements = elements;
+    }
+
+    @Override
+    public String toString() {
+      return "[" + Joiner.on(", ").join(elements) + "]";
+    }
+
+    @Override
+    Object evaluate(EvaluationContext context) {
+      // We can't use ImmutableList because there can be nulls.
+      List<Object> list = new ArrayList<>();
+      for (ExpressionNode element : elements) {
+        list.add(element.evaluate(context));
+      }
+      return Collections.unmodifiableList(list);
+    }
   }
 
   /**
