@@ -195,6 +195,7 @@ EscapeVelocity can evaluate expressions. An expression can be any of these:
 * An integer literal such as `23` or `-100`. EscapeVelocity does not support floating-point
   literals.
 * A Boolean literal, `true` or `false`.
+* A list literal, as described below.
 * Simpler expressions joined together with operators that have the same meaning as in Java:
   `!`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `+`, `-`, `*`, `/`, `%`. The operators have the
   same precedence as in Java.
@@ -209,6 +210,14 @@ containing everything between the quotes, but this time the text can contain ref
 `$purchase.Total` and directives like `#if ($condition) yes #end`.
 
 String literals can span more than one line.
+
+### List literals
+
+There are two forms of list literals that can appear in expressions. An explicit list
+such as `[]`, `[23]`, or `["a", "b"]` evaluates to a Java `List` containing those values.
+A range such as `[0..$i]` or `[$from .. $to]` evaluates to a Java `List` containing the
+integer values from the first number to the second number, inclusive. If the second number
+is less than the first, the list values decrease.
 
 ## Directives
 
@@ -292,6 +301,16 @@ below.)
 
 Velocity gives the `$foreach` variable other properties (`count`) but EscapeVelocity
 does not.
+
+The `#foreach` directive is often used with list literals:
+
+```
+#foreach ($i in [1..$n])
+  #foreach ($j in ["a", "b", "c"])
+    $someObject.someMethod($i, $j)
+  #end
+#end
+```
 
 ### Macros
 
