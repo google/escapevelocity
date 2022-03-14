@@ -23,8 +23,10 @@ Its use to generate Java code in the [AutoValue][AutoValue] annotation processor
 makes it hard to [shade](https://maven.apache.org/plugins/maven-shade-plugin/) it, which in the case
 of AutoValue led to interference if Velocity was used elsewhere in a project.
 
-EscapeVelocity has a simple API that does not involve any class-loading or other sources of
-problems. It and its dependencies can be shaded with no difficulty.
+EscapeVelocity has a
+[simple API](https://javadoc.io/doc/com.google.escapevelocity/escapevelocity/latest/index.html)
+that does not involve any class-loading or other sources of problems. It and its
+dependencies can be shaded with no difficulty.
 
 ## Loading a template
 
