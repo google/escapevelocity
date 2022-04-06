@@ -385,11 +385,11 @@ For this to work, you will need to tell EscapeVelocity how to find "resources" s
 
 ```
 ResourceOpener resourceOpener = resourceName -> {
-  InputStream inputStream = getClass().getResource(resourceName);
+  InputStream inputStream = getClass().getResource(resourceName).openStream();
   if (inputStream == null) {
     throw new IOException("Unknown resource: " + resourceName);
   }
-  return new BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8));
+  return new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
 };
 Template template = Template.parseFrom("foo.vm", resourceOpener);
 ```
