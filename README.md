@@ -427,4 +427,4 @@ post-process it. For example, if it is Java code, you could use a formatter such
 worry about extraneous spaces.
 
 [VelocityHacks]: https://github.com/google/auto/blob/ca2384d5ad15a0c761b940384083cf5c50c6e839/value/src/main/java/com/google/auto/value/processor/TemplateVars.java#L54
-[AutoValue]: https://github.com/google/auto/tree/master/value
+[AutoValue]: https://github.com/google/auto/tree/main/value
