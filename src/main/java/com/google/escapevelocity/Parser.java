@@ -1334,6 +1334,7 @@ class Parser {
    * including information about where it occurred.
    */
   private ParseException parseException(String message) throws IOException {
+    int line = lineNumber();
     StringBuilder context = new StringBuilder();
     if (c == EOF) {
       context.append("EOF");
@@ -1348,6 +1349,6 @@ class Parser {
         context.append("...");
       }
     }
-    return new ParseException(message, resourceName, lineNumber(), context.toString());
+    return new ParseException(message, resourceName, line, context.toString());
   }
 }
