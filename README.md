@@ -301,8 +301,10 @@ This would produce the output `0: oranges, 1: lemons` for the list above. (The e
 to avoid introducing extraneous spaces, as described in the [section](#spaces) on spaces
 below.)
 
-Velocity gives the `$foreach` variable other properties (`count`) but EscapeVelocity
-does not.
+`$foreach.first` and `$foreach.last` are true for the first and last iteration, respectively, and false
+for other iterations. So `$foreach.last` is the negation of `$foreach.hasNext`.
+
+`$foreach.count` is one more than `$foreach.index`.
 
 The `#foreach` directive is often used with list literals:
 

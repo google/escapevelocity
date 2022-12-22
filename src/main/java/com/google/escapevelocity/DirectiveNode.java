@@ -158,7 +158,7 @@ abstract class DirectiveNode extends Node {
     /**
      *  This class is the type of the variable {@code $foreach} that is defined within
      * {@code #foreach} loops. Its {@link #getHasNext()} method means that we can write
-     * {@code #if ($foreach.hasNext)} and likewise for {@link #getIndex()}.
+     * {@code #if ($foreach.hasNext)} and likewise for {@link #getIndex()} etc.
      */
     private static class ForEachVar {
       private final CountingIterator iterator;
@@ -171,8 +171,20 @@ abstract class DirectiveNode extends Node {
         return iterator.hasNext();
       }
 
+      public boolean getFirst() {
+        return iterator.index() == 0;
+      }
+
+      public boolean getLast() {
+        return !iterator.hasNext();
+      }
+
       public int getIndex() {
         return iterator.index();
+      }
+
+      public int getCount() {
+        return iterator.index() + 1;
       }
     }
   }
