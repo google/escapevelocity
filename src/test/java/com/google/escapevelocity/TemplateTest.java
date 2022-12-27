@@ -642,6 +642,10 @@ public class TemplateTest {
     compare("#set ($x = false && true) $x");
     compare("#set ($x = true && false) $x");
     compare("#set ($x = true && true) $x");
+    compare("#set ($x = false and false) $x");
+    compare("#set ($x = false and true) $x");
+    compare("#set ($x = true and false) $x");
+    compare("#set ($x = true and true) $x");
   }
 
   @Test
@@ -650,12 +654,32 @@ public class TemplateTest {
     compare("#set ($x = false || true) $x");
     compare("#set ($x = true || false) $x");
     compare("#set ($x = true || true) $x");
+    compare("#set ($x = false or false) $x");
+    compare("#set ($x = false or true) $x");
+    compare("#set ($x = true or false) $x");
+    compare("#set ($x = true or true) $x");
   }
 
   @Test
   public void not() {
     compare("#set ($x = !true) $x");
     compare("#set ($x = !false) $x");
+    compare("#set ($x = not true) $x");
+    compare("#set ($x = not false) $x");
+  }
+
+  @Test
+  public void misspelledWordOperators() {
+    expectException(
+        "#if (no true) what #end", "Identifier must be preceded by $ or be true or false");
+    expectException(
+        "#if (nott true) what #end", "Identifier must be preceded by $ or be true or false");
+    expectException("#if (true oor false) what #end", "Expected 'or' but was 'oor");
+    expectException("#if (true andd false) what #end", "Expected 'and' but was 'andd");
+    expectException("#if (true annd false) what #end", "Expected 'and' but was 'annd");
+
+    // Neither Velocity nor EscapeVelocity has an xor operator.
+    expectException("#if (true xor false) what #end", "Expected )");
   }
 
   @Test

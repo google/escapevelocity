@@ -963,6 +963,15 @@ class Parser {
      */
     private void nextOperator() throws IOException {
       skipSpace();
+      switch (c) {
+        case 'a':
+          wordOperator("and", Operator.AND);
+          return;
+        case 'o':
+          wordOperator("or", Operator.OR);
+          return;
+        default: // this will fail later, but just stopping the expression here is fine
+      }
       ImmutableList<Operator> possibleOperators = CODE_POINT_TO_OPERATORS.get(c);
       if (possibleOperators.isEmpty()) {
         currentOperator = Operator.STOP;
@@ -985,6 +994,15 @@ class Parser {
             "Expected " + Iterables.getOnlyElement(possibleOperators) + ", not just " + firstChar);
       }
       currentOperator = operator;
+    }
+
+    private void wordOperator(String symbol, Operator operator) throws IOException {
+      String id = parseId("");
+      if (id.equals(symbol)) {
+        currentOperator = operator;
+      } else {
+        throw parseException("Expected '" + symbol + "' but was '" + id + "'");
+      }
     }
   }
 
@@ -1050,7 +1068,7 @@ class Parser {
     } else if (isAsciiDigit(c)) {
       node = parseIntLiteral("");
     } else if (isAsciiLetter(c)) {
-      node = parseBooleanOrNullLiteral(nullAllowed);
+      node = parseNotOrBooleanOrNullLiteral(nullAllowed);
     } else {
       throw parseException("Expected a reference or a literal");
     }
@@ -1260,7 +1278,7 @@ class Parser {
    * only if {@code nullAllowed} is true. Velocity allows {@code null} as a method parameter but not
    * anywhere else.
    */
-  private ExpressionNode parseBooleanOrNullLiteral(boolean nullAllowed) throws IOException {
+  private ExpressionNode parseNotOrBooleanOrNullLiteral(boolean nullAllowed) throws IOException {
     String id = parseId("Identifier without $");
     Object value;
     switch (id) {
@@ -1270,6 +1288,8 @@ class Parser {
       case "false":
         value = false;
         break;
+      case "not":
+        return new NotExpressionNode(parseUnaryExpression());
       case "null":
         if (nullAllowed) {
           value = null;
