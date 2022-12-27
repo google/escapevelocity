@@ -79,7 +79,7 @@ abstract class DirectiveNode extends Node {
     }
 
     @Override void render(EvaluationContext context, StringBuilder output) {
-      Node branch = condition.isDefinedAndTrue(context) ? truePart : falsePart;
+      Node branch = condition.isTrue(context, /* undefinedIsFalse= */ true) ? truePart : falsePart;
       branch.render(context, output);
     }
   }

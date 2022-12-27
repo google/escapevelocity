@@ -46,7 +46,7 @@ class ConstantExpressionNode extends ExpressionNode {
   }
 
   @Override
-  Object evaluate(EvaluationContext context) {
+  Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
     return value;
   }
 

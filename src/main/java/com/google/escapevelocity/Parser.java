@@ -1150,7 +1150,7 @@ class Parser {
     }
 
     @Override
-    Object evaluate(EvaluationContext context) {
+    Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       int from = first.intValue(context);
       int to = last.intValue(context);
       ImmutableSortedSet<Integer> set =
@@ -1186,7 +1186,7 @@ class Parser {
     }
 
     @Override
-    Object evaluate(EvaluationContext context) {
+    Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       // We can't use ImmutableList because there can be nulls.
       List<Object> list = new ArrayList<>();
       for (ExpressionNode element : elements) {
@@ -1251,7 +1251,7 @@ class Parser {
     }
 
     @Override
-    Object evaluate(EvaluationContext context) {
+    Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       StringBuilder sb = new StringBuilder();
       for (Node node : nodes) {
         node.render(context, sb);

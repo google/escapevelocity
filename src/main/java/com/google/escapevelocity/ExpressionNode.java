@@ -76,8 +76,18 @@ abstract class ExpressionNode extends Node {
    * the value {@code $foo} is itself an {@link ExpressionNode} which evaluates to the object
    * referenced by the {@code foo} variable, and {@code $foo.bar} is another {@link ExpressionNode}
    * that takes the value from {@code foo} and looks for the property {@code bar} in it.
+   *
+   * @param context the context of the evaluation, for example the {@code $variables} that are in
+   *     scope
+   * @param undefinedIsFalse whether an undefined plain reference like {@code $foo} is considered
+   *     to be false. This is the case when evaluating the condition in an {@code #if}. Everywhere
+   *     else, an undefined reference causes an exception.
    */
-  abstract Object evaluate(EvaluationContext context);
+  abstract Object evaluate(EvaluationContext context, boolean undefinedIsFalse);
+
+  final Object evaluate(EvaluationContext context) {
+    return evaluate(context, /* undefinedIsFalse= */ false);
+  }
 
   /**
    * True if evaluating this expression yields a value that is considered true by Velocity's
@@ -88,26 +98,15 @@ abstract class ExpressionNode extends Node {
    * <p>Note that the text at the similar link
    * <a href="http://velocity.apache.org/engine/devel/user-guide.html#Conditionals">here</a>
    * states that empty collections and empty strings are also considered false, but that is not
-   * true.
+   * what Velocity actually implements.
    */
-  boolean isTrue(EvaluationContext context) {
-    Object value = evaluate(context);
+  boolean isTrue(EvaluationContext context, boolean undefinedIsFalse) {
+    Object value = evaluate(context, undefinedIsFalse);
     if (value instanceof Boolean) {
       return (Boolean) value;
     } else {
       return value != null;
     }
-  }
-
-  /**
-   * True if this is a defined value and it evaluates to true. This is the same as {@link #isTrue}
-   * except that it is allowed for this to be undefined variable, in which it evaluates to false.
-   * The method is overridden for plain references so that undefined is the same as false.
-   * The reason is to support Velocity's idiom {@code #if ($var)}, where it is not an error
-   * if {@code $var} is undefined.
-   */
-  boolean isDefinedAndTrue(EvaluationContext context) {
-    return isTrue(context);
   }
 
   /**
@@ -179,12 +178,12 @@ abstract class ExpressionNode extends Node {
       return s;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       switch (op) {
         case OR:
-          return lhs.isTrue(context) || rhs.isTrue(context);
+          return lhs.isTrue(context, undefinedIsFalse) || rhs.isTrue(context, undefinedIsFalse);
         case AND:
-          return lhs.isTrue(context) && rhs.isTrue(context);
+          return lhs.isTrue(context, undefinedIsFalse) && rhs.isTrue(context, undefinedIsFalse);
         case EQUAL:
           return equal(context);
         case NOT_EQUAL:
@@ -307,8 +306,8 @@ abstract class ExpressionNode extends Node {
       return "!" + expr;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
-      return !expr.isTrue(context);
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
+      return !expr.isTrue(context, undefinedIsFalse);
     }
   }
 }

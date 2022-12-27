@@ -66,20 +66,13 @@ abstract class ReferenceNode extends ExpressionNode {
       return "$" + id;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       if (context.varIsDefined(id)) {
         return context.getVar(id);
+      } else if (undefinedIsFalse) {
+        return false;
       } else {
         throw evaluationException("Undefined reference " + this);
-      }
-    }
-
-    @Override
-    boolean isDefinedAndTrue(EvaluationContext context) {
-      if (context.varIsDefined(id)) {
-        return isTrue(context);
-      } else {
-        return false;
       }
     }
   }
@@ -105,7 +98,9 @@ abstract class ReferenceNode extends ExpressionNode {
       return lhs + "." + id;
     }
 
-    @Override Object evaluate(EvaluationContext context) {
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
+      // We don't propagate undefinedIsFalse because we don't allow $foo.bar if $foo is undefined,
+      // even inside an #if expression.
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
         throw evaluationExceptionInThis(lhs + " must not be null");
@@ -173,7 +168,9 @@ abstract class ReferenceNode extends ExpressionNode {
       return lhs + "[" + index + "]";
     }
 
-    @Override Object evaluate(EvaluationContext context) {
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
+      // We don't propagate undefinedIsFalse because we don't allow $foo[0] if $foo is undefined,
+      // even inside an #if expression.
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
         throw evaluationExceptionInThis(lhs + " must not be null");
@@ -251,7 +248,9 @@ abstract class ReferenceNode extends ExpressionNode {
      * you may want to invoke a public method like {@link List#size()} on a list whose class is not
      * public, such as the list returned by {@link java.util.Collections#singletonList}.
      */
-    @Override Object evaluate(EvaluationContext context) {
+    @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
+      // We don't propagate undefinedIsFalse because we don't allow $foo.bar() if $foo is undefined,
+      // even inside an #if expression.
       Object lhsValue = lhs.evaluate(context);
       if (lhsValue == null) {
         throw evaluationExceptionInThis(lhs + " must not be null");

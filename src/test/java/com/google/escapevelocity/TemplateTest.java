@@ -838,6 +838,27 @@ public class TemplateTest {
   @Test
   public void ifUndefined() {
     compare("#if ($undefined) really? #else indeed #end");
+    compare("#if ($false || $undefined) nope #else yes #end", ImmutableMap.of("false", false));
+    compare("#if ($true && $undefined) nope #else yes #end", ImmutableMap.of("true", true));
+    compare("#if (!$undefined) yes #else nope #end");
+
+    // Only plain references get this special treatment and only when being evaluated for truth.
+    expectException("#if ($foo.bar) oops #end", "Undefined reference $foo");
+    expectException("#if ($foo.bar()) oops #end", "Undefined reference $foo");
+    expectException("#if ($foo[0]) oops #end", "Undefined reference $foo");
+    expectException(
+        "#if ($list[$foo]) oops #end",
+        ImmutableMap.of("list", ImmutableList.of("foo", "bar", "baz")),
+        "Undefined reference $foo");
+    expectException(
+        "#if ($undefined1 == $undefined2) yes #else nope #end", "Undefined reference $undefined1");
+
+    // The special treatment is only in #if, not when evaluating Boolean expressions in general.
+    expectException("#set ($foo = !$undefined) $foo", "Undefined reference $undefined");
+    expectException(
+        "#set ($foo = $false || $undefined) $foo",
+        ImmutableMap.of("false", false),
+        "Undefined reference $undefined");
   }
 
   @Test
