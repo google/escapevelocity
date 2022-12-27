@@ -872,6 +872,14 @@ public class TemplateTest {
   }
 
   @Test
+  public void forEachFirstLast() {
+    compare("x#foreach ($x in $c) <#if ($foreach.first)?#end$x#if ($foreach.last)!#end#end",
+        ImmutableMap.of("c", ImmutableList.of()));
+    compare("x#foreach ($x in $c) <#if ($foreach.first)?#end$x#if ($foreach.last)!#end#end",
+        ImmutableMap.of("c", ImmutableList.of("foo", "bar", "baz")));
+  }
+
+  @Test
   public void nestedForEach() {
     String template =
         "$x #foreach ($x in $listOfLists)\n"
@@ -905,6 +913,18 @@ public class TemplateTest {
             + "[$foreach.index]"
             + "#foreach ($y in $list)"
             + "($foreach.index)==$x.$y=="
+            + "#end"
+            + "#end";
+    compare(template, ImmutableMap.of("list", ImmutableList.of("blim", "blam", "blum")));
+  }
+
+  @Test
+  public void forEachCount() {
+    String template =
+        "#foreach ($x in $list)"
+            + "[$foreach.count]"
+            + "#foreach ($y in $list)"
+            + "($foreach.count)==$x.$y=="
             + "#end"
             + "#end";
     compare(template, ImmutableMap.of("list", ImmutableList.of("blim", "blam", "blum")));
