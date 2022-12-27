@@ -545,6 +545,15 @@ class Parser {
   }
 
   /**
+   * {@code #directives} that Velocity supports but we currently don't, and that don't have to be
+   * followed by {@code (}. If we see one of these, we should complain, rather than just ignoring it
+   * the way we would for {@code #random} or whatever. If it <i>does</i> have to be followed by
+   * {@code (} then we will treat it as an undefined macro, which is fine.
+   */
+  private static final ImmutableSet<String> UNSUPPORTED_VELOCITY_DIRECTIVES =
+      ImmutableSet.of("break", "stop");
+
+  /**
    * Parses an identifier after {@code #} that is not one of the standard directives. The assumption
    * is that it is a call of a macro that is defined in the template. Macro definitions are
    * extracted from the template during the second parsing phase (and not during evaluation of the
@@ -558,9 +567,22 @@ class Parser {
    * }</pre>
    */
   private Node parsePossibleMacroCall(String directive) throws IOException {
-    skipSpace();
+    StringBuilder sb = new StringBuilder("#").append(directive);
+    while (Character.isWhitespace(c)) {
+      sb.appendCodePoint(c);
+      next();
+    }
     if (c != '(') {
-      throw parseException("Unrecognized directive #" + directive);
+      if (UNSUPPORTED_VELOCITY_DIRECTIVES.contains(directive)) {
+        throw parseException("EscapeVelocity does not currently support #" + directive);
+      }
+      // Velocity allows #foo, where #foo is not a directive and is not followed by `(` (so it can't
+      // be a macro call). Then it is just plain text. BUT, sometimes but not always, Velocity will
+      // reject #endfoo, a string beginning with #end. So we do always reject that.
+      if (directive.startsWith("end")) {
+        throw parseException("Unrecognized directive #" + directive);
+      }
+      return parsePlainText(sb);
     }
     next();
     ImmutableList.Builder<ExpressionNode> parameterNodes = ImmutableList.builder();

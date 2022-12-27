@@ -17,6 +17,7 @@ package com.google.escapevelocity;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
 import com.google.common.base.Joiner;
@@ -197,6 +198,65 @@ public class TemplateTest {
     compare("#<foo>");
     compare("# <foo>");
     compare("${foo}#${bar}", ImmutableMap.of("foo", "xxx", "bar", "yyy"));
+  }
+
+  @Test
+  public void ignoreUnrecognizedDirective() {
+    compare("<a href=\"http://google.com/foo#bar\">");
+    compare("#bar");
+    // Using a name like #endfoo sometimes triggers an exception with Velocity. Here we check
+    // whether any other standard directive string has this behaviour, and apparently none do.
+    compare("#breakx");
+    compare("#definex");
+    compare("#elseifx");
+    compare("#elsex");
+    compare("#evaluatex");
+    compare("#foreachx");
+    compare("#ifx");
+    compare("#includex");
+    compare("#macrox");
+    compare("#parsex");
+    compare("#setx");
+    compare("#stopx");
+    expectException("#endx", "Unrecognized directive #endx");
+  }
+
+  // Since we are lax with #foo in general, make sure we don't just ignore Velocity directives that
+  // we don't support. There are two varieties: ones that must be followed by `(`, which we will
+  // treat as undefined macros; and ones that are not necessarily followed by `(`, which we handle
+  // explicitly.
+
+  @Test
+  public void unsupportedDirectives_paren() throws Exception {
+    String[] unsupportedDirectives = {
+      "#break($foreach)", "#define($foo)", "#evaluate('x')", "#include('x.vm')",
+    };
+    for (String unsupportedDirective : unsupportedDirectives) {
+      Template template = Template.parseFrom(new StringReader(unsupportedDirective));
+      EvaluationException e =
+          assertThrows(
+              unsupportedDirective,
+              EvaluationException.class,
+              () -> template.evaluate(ImmutableMap.of()));
+      assertThat(e)
+          .hasMessageThat()
+          .contains("is neither a standard directive nor a macro");
+    }
+  }
+
+  @Test
+  public void unsupportedDirectives_noParen() {
+    String[] unsupportedDirectives = {"#break", "#stop"};
+    for (String unsupportedDirective : unsupportedDirectives) {
+      ParseException e =
+          assertThrows(
+              unsupportedDirective,
+              ParseException.class,
+              () -> Template.parseFrom(new StringReader(unsupportedDirective)));
+      assertThat(e)
+          .hasMessageThat()
+          .contains("EscapeVelocity does not currently support " + unsupportedDirective);
+    }
   }
 
   @Test
