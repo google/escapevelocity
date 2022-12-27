@@ -577,6 +577,20 @@ public class TemplateTest {
     compare("#set ($x = 22 - 7) $x");
     compare("#set ($x = 22 / 7) $x");
     compare("#set ($x = 22 % 7) $x");
+
+    compare("#set ($x = 'foo' + 'bar') $x");
+    compare("#set ($x = 23 + ' skidoo') $x");
+    compare("#set ($x = 'heaven ' + 17) $x");
+
+    // Check that we copy Velocity here: these null references will be replaced by their source
+    // text, for example "$bar" for the null $bar reference in the first two.
+    compare("#set ($x = 'foo' + $bar) $x", Collections.singletonMap("bar", null));
+    compare("#set ($x = $bar + 'foo') $x", Collections.singletonMap("bar", null));
+
+    // This one results in "foo$bar + $bar" in both Velocity and EscapeVelocity. $bar + $bar is null
+    // and then 'foo' + null gets replaced by a representation of the source expression that
+    // produced the null.
+    compare("#set ($x = 'foo' + ($bar + $bar)) $x", Collections.singletonMap("bar", null));
   }
 
   @Test
@@ -600,6 +614,7 @@ public class TemplateTest {
                 "#nulltest($null)",
                 "#nulltest('not null')",
                 "#set ($x = 1 + $null) #nulltest($x)",
+                "#set ($x = $null + $null) #nulltest($x)",
                 "#set ($x = $null - 1) #nulltest($x)",
                 "#set ($x = $null * $null) #nulltest($x)",
                 "#set ($x = $null / $null) #nulltest($x)",

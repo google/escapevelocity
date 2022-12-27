@@ -189,6 +189,8 @@ abstract class ExpressionNode extends Node {
           return equal(context);
         case NOT_EQUAL:
           return !equal(context);
+        case PLUS:
+          return plus(context);
         default: // fall out
       }
       Integer lhsInt = lhs.intValue(context);
@@ -205,8 +207,6 @@ abstract class ExpressionNode extends Node {
           return lhsInt > rhsInt;
         case GREATER_OR_EQUAL:
           return lhsInt >= rhsInt;
-        case PLUS:
-          return lhsInt + rhsInt;
         case MINUS:
           return lhsInt - rhsInt;
         case TIMES:
@@ -257,6 +257,35 @@ abstract class ExpressionNode extends Node {
       }
       // Funky equals behaviour specified by Velocity.
       return lhsValue.toString().equals(rhsValue.toString());
+    }
+
+    private Object plus(EvaluationContext context) {
+      Object lhsValue = lhs.evaluate(context);
+      Object rhsValue = rhs.evaluate(context);
+      if (lhsValue instanceof String || rhsValue instanceof String) {
+        // Velocity's treatment of null is all over the map. In a string concatenation, a null
+        // reference is replaced by the the source text of the reference, for example "$foo". The
+        // toString() that we have for the various ExpressionNode subtypes reproduces this at least
+        // in our test cases.
+        if (lhsValue == null) {
+          lhsValue = lhs.toString();
+        }
+        if (rhsValue == null) {
+          rhsValue = rhs.toString();
+        }
+        return new StringBuilder().append(lhsValue).append(rhsValue).toString();
+      }
+      if (lhsValue == null || rhsValue == null) {
+        return null;
+      }
+      if (!(lhsValue instanceof Integer) || !(rhsValue instanceof Integer)) {
+        throw evaluationException(
+            "Operands of + must both be integers, or at least one must be a string: "
+                + show(lhsValue)
+                + " + "
+                + show(rhsValue));
+      }
+      return (Integer) lhsValue + (Integer) rhsValue;
     }
   }
 
