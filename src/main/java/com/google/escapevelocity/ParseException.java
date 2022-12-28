@@ -31,7 +31,7 @@ public class ParseException extends RuntimeException {
     super(message + ", " + where(resourceName, lineNumber) + ", at text starting: " + context);
   }
 
-  private static String where(String resourceName, int lineNumber) {
+  static String where(String resourceName, int lineNumber) {
     if (resourceName == null) {
       return "on line " + lineNumber;
     } else {

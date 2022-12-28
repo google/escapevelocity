@@ -71,7 +71,21 @@ class Parser {
   private final LineNumberReader reader;
   private final String resourceName;
   private final Template.ResourceOpener resourceOpener;
-  private final Map<String, Macro> macros;
+
+  /**
+   * Map from resource name to already-parsed template. This map is shared between all of the nested
+   * {@link Parser} instances that result from {@code #parse} directives, so we will only ever read
+   * and parse any given resource name once.
+   */
+  private final Map<String, Template> parseCache;
+
+  /**
+   * Macros that have been defined during this parse. This means macros defined in a given {@code
+   * foo.vm} file, without regard to whatever macros might be defined in another {@code bar.vm}
+   * file. If the same name is defined more than once in {@code foo.vm}, only the first definition
+   * has any effect.
+   */
+  private final Map<String, Macro> macros = new TreeMap<>();
 
   /**
    * The invariant of this parser is that {@code c} is always the next character of interest.
@@ -89,23 +103,18 @@ class Parser {
    */
   private int pushback = -1;
 
-  Parser(Reader reader, String resourceName, Template.ResourceOpener resourceOpener)
-      throws IOException {
-    this(reader, resourceName, resourceOpener, new TreeMap<>());
-  }
-
-  private Parser(
+  Parser(
       Reader reader,
       String resourceName,
       Template.ResourceOpener resourceOpener,
-      Map<String, Macro> macros)
+      Map<String, Template> parseCache)
       throws IOException {
     this.reader = new LineNumberReader(reader);
     this.reader.setLineNumber(1);
     next();
     this.resourceName = resourceName;
     this.resourceOpener = resourceOpener;
-    this.macros = macros;
+    this.parseCache = parseCache;
   }
 
   /**
@@ -304,7 +313,7 @@ class Parser {
 
   /**
    * Parses a single non-directive node from the reader. This is either a reference, like
-   * {@code foo} or {@code bar.baz} or {@code foo.bar[$baz].buh()}; or it is text containing
+   * {@code $foo} or {@code $bar.baz} or {@code $foo.bar[$baz].buh()}; or it is text containing
    * neither references (no {@code $}) nor directives (no {@code #}).
    */
   private Node parseNonDirective() throws IOException {
@@ -473,32 +482,23 @@ class Parser {
    * Parses a {@code #parse} token from the reader.
    *
    * <pre>{@code
-   * #parse ( <string-literal> )
+   * #parse ( <primary> )
    * }</pre>
    *
-   * <p>The way this works is inconsistent with Velocity. In Velocity, the {@code #parse} directive
-   * is evaluated when it is encountered during template evaluation. That means that the argument
-   * can be a variable, and it also means that you can use {@code #if} to choose whether or not
-   * to do the {@code #parse}. Neither of those is true in EscapeVelocity. The contents of the
-   * {@code #parse} are integrated into the containing template pretty much as if they had been
-   * written inline. That also means that EscapeVelocity allows forward references to macros
-   * inside {@code #parse} directives, which Velocity does not.
+   * <p>When we see a {@code #parse} directive while parsing a template, all we do is record it as a
+   * {@link ParseNode} in the {@link Template} we produce. We only actually open and parse the
+   * resource named in the {@code #parse} when the template is later <i>evaluated</i>. The {@code
+   * parseCache} means that we will only do this once, at least if the argument to the {@code
+   * #parse} is always the same string.
    */
   private Node parseParse() throws IOException {
     int startLine = lineNumber();
     expect('(');
+    ExpressionNode nestedResourceNameExpression = parsePrimary();
     skipSpace();
-    if (c != '"' && c != '\'') {
-      throw parseException("#parse only supported with string literal argument");
-    }
-    ExpressionNode nestedResourceNameExpression = parseStringLiteral((char) c, false);
-    String nestedResourceName = nestedResourceNameExpression.evaluate(null).toString();
     expect(')');
-    try (Reader nestedReader = resourceOpener.openResource(nestedResourceName)) {
-      Parser nestedParser = new Parser(nestedReader, nestedResourceName, resourceOpener, macros);
-      ParseResult parseResult = nestedParser.parseToStop(EOF_CLASS, () -> "outside any construct");
-      return Node.cons(resourceName, startLine, parseResult.nodes);
-    }
+    return new ParseNode(
+        resourceName, startLine, nestedResourceNameExpression, resourceOpener, parseCache);
   }
 
   /**
@@ -556,8 +556,9 @@ class Parser {
   /**
    * Parses an identifier after {@code #} that is not one of the standard directives. The assumption
    * is that it is a call of a macro that is defined in the template. Macro definitions are
-   * extracted from the template during the second parsing phase (and not during evaluation of the
-   * template as you might expect). This means that a macro can be called before it is defined.
+   * extracted from the template during parsing (and not during evaluation of the template as you
+   * might expect). This means that a macro can be called before it is defined.
+   *
    * <pre>{@code
    * #<id> ()
    * #<id> ( <expr1> )
@@ -721,7 +722,7 @@ class Parser {
   }
 
   /**
-   * Same as {@link #parseReference()}, except it really must be a reference. A {@code $} in
+   * Same as {@link #parseReference}, except it really must be a reference. A {@code $} in
    * normal text doesn't start a reference if it is not followed by an identifier. But in an
    * expression, for example in {@code #if ($x == 23)}, {@code $} must be followed by an
    * identifier.
@@ -925,7 +926,7 @@ class Parser {
    *                 <expression> || <and-expression>
    * <and-expression> -> <relational-expression> |
    *                     <and-expression> && <relational-expression>
-   * <equality-exression> -> <relational-expression> |
+   * <equality-expression> -> <relational-expression> |
    *                         <equality-expression> <equality-op> <relational-expression>
    * <equality-op> -> == | !=
    * <relational-expression> -> <additive-expression> |
@@ -1247,8 +1248,8 @@ class Parser {
       // This is potentially something like "foo${bar}baz" or "foo#macro($bar)baz", where the text
       // inside "..." is expanded like a mini-template. Of course it might also just be a plain old
       // string like "foo", in which case we will just parse a single ConstantExpressionNode here.
-      Parser stringParser = new Parser(
-          new StringReader(s), "string on line " + lineNumber(), resourceOpener, macros);
+      String where = "string " + ParseException.where(resourceName, lineNumber());
+      Parser stringParser = new Parser(new StringReader(s), where, resourceOpener, parseCache);
       ParseResult parseResult = stringParser.parseToStop(EOF_CLASS, () -> "outside any construct");
       nodes = parseResult.nodes;
     } else {

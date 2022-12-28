@@ -15,7 +15,6 @@
  */
 package com.google.escapevelocity;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -25,7 +24,9 @@ import java.util.TreeMap;
  * The context of a template evaluation. This consists of the template variables and the template
  * macros. The template variables start with the values supplied by the evaluation call, and can
  * be changed by {@code #set} directives and during the execution of {@code #foreach} and macro
- * calls. The macros are extracted from the template during parsing and never change thereafter.
+ * calls. The macros start out with the ones that were defined in the root {@link Template} and may
+ * be supplemented by nested templates produced by {@code #parse} directives encountered in the
+ * root template or in nested templates.
  *
  * @author emcmanus@google.com (Éamonn McManus)
  */
@@ -46,16 +47,20 @@ interface EvaluationContext {
   /** See {@link MethodFinder#publicMethodsWithName}. */
   ImmutableSet<Method> publicMethodsWithName(Class<?> startClass, String name);
 
-  /** Gets the macro definition with the given name, or null if there is none. */
-  Macro getMacro(String name);
+  /**
+   * Returns a modifiable mapping from macro names to macros. Initially this map starts off with the
+   * macros that were defined in the root template. As {@code #parse} directives are encountered in
+   * the evaluation, they may add further macros to the map.
+   */
+  Map<String, Macro> getMacros();
 
   class PlainEvaluationContext implements EvaluationContext {
     private final Map<String, Object> vars;
-    private final ImmutableMap<String, Macro> macros;
+    private final Map<String, Macro> macros;
     private final MethodFinder methodFinder;
 
     PlainEvaluationContext(
-        Map<String, ?> vars, ImmutableMap<String, Macro> macros, MethodFinder methodFinder) {
+        Map<String, ?> vars, Map<String, Macro> macros, MethodFinder methodFinder) {
       this.vars = new TreeMap<>(vars);
       this.macros = macros;
       this.methodFinder = methodFinder;
@@ -90,8 +95,8 @@ interface EvaluationContext {
     }
 
     @Override
-    public Macro getMacro(String name) {
-      return macros.get(name);
+    public Map<String, Macro> getMacros() {
+      return macros;
     }
   }
 }

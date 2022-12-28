@@ -19,7 +19,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.escapevelocity.EvaluationContext.PlainEvaluationContext;
 import java.io.IOException;
 import java.io.Reader;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * A template expressed in EscapeVelocity, a subset of the Velocity Template Language (VTL) from
@@ -32,6 +34,15 @@ import java.util.Map;
 // TODO(emcmanus): spell out exactly what Velocity features are unsupported.
 public class Template {
   private final Node root;
+
+  /**
+   * Macros that are defined in this template (this exact VTL file). If the template includes
+   * {@code #parse} directives, those might end up defining other macros when a {@code #parse} is
+   * evaluated. The {@code #parse} produces a separate {@code Template} object with its own
+   * {@code macros} map. When the root {@code Template} is evaluated, the {@link EvaluationContext}
+   * starts off with the macros here, and each {@code #parse} that is executed may add macros to the
+   * map in the {@code EvaluationContext}.
+   */
   private final ImmutableMap<String, Macro> macros;
 
   /**
@@ -56,8 +67,9 @@ public class Template {
    *     if (inputStream == null) {
    *       throw new IOException("Unknown resource: " + resourceName);
    *     }
-   *     return new BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8));
+   *     return new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
    *   };
+   *   Template template = Template.parseFrom("foo.vm", resourceOpener);
    * }</pre>
    */
   @FunctionalInterface
@@ -66,7 +78,8 @@ public class Template {
     /**
      * Returns a {@code Reader} that will be used to read the given resource, then closed.
      *
-     * @param resourceName the name of the resource to be read. This will never be null.
+     * @param resourceName the name of the resource to be read. This can be null if
+     *     {@code Template.parseFrom} is called with a null {@code resourceName}.
      * @return a {@code Reader} for the resource.
      * @throws IOException if the resource cannot be opened.
      */
@@ -101,7 +114,7 @@ public class Template {
   }
 
   /**
-   * Parse a VTL template of the given name using the given {@code ResourceOpener}.
+   * Parses a VTL template of the given name using the given {@code ResourceOpener}.
    *
    * @param resourceName name of the resource. May be null.
    * @param resourceOpener used to open the initial resource and resources referenced by
@@ -112,8 +125,22 @@ public class Template {
    */
   public static Template parseFrom(
       String resourceName, ResourceOpener resourceOpener) throws IOException {
+
+    // This cache is passed into the top-level parser, and saved in the ParseNode for any #parse
+    // directive. When a #parse is evaluated, it either finds the already-parsed Template for the
+    // resource named in its argument, or it parses the resource and saves the result in this
+    // cache. If it parses the resource, it will pass in the same parseCache to the parseFrom method
+    // below so the parseCache will be shared by any #parse directives in nested templates.
+    Map<String, Template> parseCache = new TreeMap<>();
+
+    return parseFrom(resourceName, resourceOpener, parseCache);
+  }
+
+  static Template parseFrom(
+      String resourceName, ResourceOpener resourceOpener, Map<String, Template> parseCache)
+      throws IOException {
     try (Reader reader = resourceOpener.openResource(resourceName)) {
-      return new Parser(reader, resourceName, resourceOpener).parse();
+      return new Parser(reader, resourceName, resourceOpener, parseCache).parse();
     }
   }
 
@@ -128,18 +155,31 @@ public class Template {
    * @param vars a map where the keys are variable names and the values are the corresponding
    *     variable values. For example, if {@code "x"} maps to 23, then {@code $x} in the template
    *     will expand to 23.
-   *
    * @return the string result of evaluating the template.
-   *
    * @throws EvaluationException if the evaluation failed, for example because of an undefined
-   *     reference.
+   *     reference. If the template contains a {@code #parse} directive, there may be an exception
+   *     such as {@link ParseException} or {@link IOException} when the nested template is read and
+   *     parsed. That exception will then be the {@linkplain Throwable#getCause() cause} of an
+   *     {@link EvaluationException}.
    */
   public String evaluate(Map<String, ?> vars) {
-    EvaluationContext evaluationContext = new PlainEvaluationContext(vars, macros, methodFinder);
-    StringBuilder sb = new StringBuilder(1024);
+    // This is so that a nested #parse can define new macros. Obviously that shouldn't affect the
+    // macros stored in the template, since later calls to `evaluate` should not see changes.
+    Map<String, Macro> modifiableMacros = new LinkedHashMap<>(macros);
+    EvaluationContext evaluationContext =
+        new PlainEvaluationContext(vars, modifiableMacros, methodFinder);
+    StringBuilder output = new StringBuilder(1024);
     // The default size of 16 is going to be too small for the vast majority of rendered templates.
     // We use a somewhat arbitrary larger starting size instead.
-    root.render(evaluationContext, sb);
-    return sb.toString();
+    render(evaluationContext, output);
+    return output.toString();
+  }
+
+  void render(EvaluationContext context, StringBuilder output) {
+    root.render(context, output);
+  }
+
+  ImmutableMap<String, Macro> getMacros() {
+    return macros;
   }
 }

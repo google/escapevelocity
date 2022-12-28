@@ -21,12 +21,13 @@ from tools such as editors and coding websites. However, *using* Velocity can pr
 Its use to generate Java code in the [AutoValue][AutoValue] annotation processor required many
 [workarounds][VelocityHacks]. The way it dynamically loads classes as part of its standard operation
 makes it hard to [shade](https://maven.apache.org/plugins/maven-shade-plugin/) it, which in the case
-of AutoValue led to interference if Velocity was used elsewhere in a project.
+of AutoValue led to interference if Velocity was used elsewhere in a project. Velocity also has a
+large and complex API, and has introduced several incompatible changes over the years.
 
 EscapeVelocity has a
 [simple API](https://javadoc.io/doc/com.google.escapevelocity/escapevelocity/latest/index.html)
 that does not involve any class-loading or other sources of problems. It and its
-dependencies can be shaded with no difficulty.
+dependencies can be shaded with no difficulty. We take care to avoid incompatible changes.
 
 ## Loading a template
 
@@ -398,6 +399,11 @@ Template template = Template.parseFrom("foo.vm", resourceOpener);
 
 In this case, the `resourceOpener` is used to find the main template `foo.vm`, as well as any
 templates it may reference in `#parse` directives.
+
+A `#parse` directive only reads and parses the named template (`macros.vm` in the example)
+when the containing template (`foo.vm`) is evaluated (`template.evaluate(vars)`). The result
+is cached, so if you do `template.evaluate(vars)` a second time it will use the already-parsed
+`macros.vm` from the first time.
 
 ## <a name="spaces"></a> Spaces
 

@@ -135,8 +135,8 @@ class Macro {
     }
 
     @Override
-    public Macro getMacro(String name) {
-      return originalEvaluationContext.getMacro(name);
+    public Map<String, Macro> getMacros() {
+      return originalEvaluationContext.getMacros();
     }
   }
 }

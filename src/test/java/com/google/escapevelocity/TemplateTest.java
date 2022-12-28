@@ -36,10 +36,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.commons.collections.ExtendedProperties;
@@ -1360,7 +1363,7 @@ public class TemplateTest {
   private String renderWithResources(
       String templateResourceName,
       ImmutableMap<String, String> resourceMap,
-      ImmutableMap<String, String> vars) {
+      Map<String, String> vars) {
     MapResourceLoader mapResourceLoader = new MapResourceLoader(resourceMap);
     RuntimeInstance runtimeInstance = newVelocityRuntimeInstance();
     runtimeInstance.setProperty("resource.loader", "map");
@@ -1378,11 +1381,14 @@ public class TemplateTest {
   public void parseDirective() throws IOException {
     // If outer.vm does #parse("nested.vm"), then we should be able to #set a variable in
     // nested.vm and use it in outer.vm, and we should be able to define a #macro in nested.vm
-    // and call it in outer.vm.
+    // and call it in outer.vm. However, if a macro is defined in outer.vm then a later definition
+    // in nested.vm will be ignored.
     ImmutableMap<String, String> resources = ImmutableMap.of(
         "outer.vm",
         "first line\n"
+            + "#macro (alreadyDefined) already defined #end\n"
             + "#parse (\"nested.vm\")\n"
+            + "#alreadyDefined()\n"
             + "<#decorate (\"left\" \"right\")>\n"
             + "$baz skidoo\n"
             + "last line\n",
@@ -1390,6 +1396,8 @@ public class TemplateTest {
         "nested template first line\n"
             + "[#if ($foo == $bar) equal #else not equal #end]\n"
             + "#macro (decorate $a $b) < $a | $b > #end\n"
+            + "#macro (alreadyDefined) not redefined #end\n"
+            + "#alreadyDefined()\n"
             + "#set ($baz = 23)\n"
             + "nested template last line\n");
 
@@ -1417,5 +1425,90 @@ public class TemplateTest {
       assertThat(e).hasMessageThat().isEqualTo(
           "In expression on line 2 of nested.vm: Undefined reference $bar");
     }
+
+    // If we evaluate just nested.vm, we should see it use its own definition of #alreadyDefined,
+    // which went unused above because the one in outer.vm took precedence.
+    compare(resources.get("nested.vm"), ImmutableMap.of("foo", "foovalue", "bar", "barvalue"));
+  }
+
+  @Test
+  public void parseDirectiveWithExpression() throws IOException {
+    // This tests evaluating the same template with different variables, where the variables
+    // determine which other template should be included by #parse. We should notably see that the
+    // macros defined differ on each evaluation, since the included templates have different
+    // definitions for the #decorate macro.
+    ImmutableMap<String, String> resources = ImmutableMap.of(
+        "outer.vm",
+        "first line\n"
+            + "#parse (\"${nested}.vm\")\n"
+            + "<#decorate (\"left\" \"right\")>\n"
+            + "$baz skidoo\n"
+            + "last line\n",
+        "nested.vm",
+        "nested template first line\n"
+            + "[#if ($foo == $bar) equal #else not equal #end]\n"
+            + "#macro (decorate $a $b) < $a | $b > #end\n"
+            + "#set ($baz = 23)\n"
+            + "nested template last line\n",
+         "othernested.vm",
+         "#macro (decorate $a $b) [ $a | $b ] #end\n"
+             + "#set ($baz = 17)\n");
+    ImmutableMap<String, String> vars = ImmutableMap.of(
+        "foo", "foovalue", "bar", "barvalue", "nested", "nested");
+
+    String velocityResult = renderWithResources("outer.vm", resources, vars);
+
+    Set<String> openedResources = new TreeSet<>();
+    Template.ResourceOpener resourceOpener = resourceName -> {
+      assertThat(resources).containsKey(resourceName);
+      assertThat(openedResources).doesNotContain(resourceName);
+      String resource = resources.get(resourceName);
+      openedResources.add(resourceName);
+      return new StringReader(resource);
+    };
+    Template template = Template.parseFrom("outer.vm", resourceOpener);
+
+    String result = template.evaluate(vars);
+    assertThat(result).isEqualTo(velocityResult);
+
+    Map<String, String> newVars = new LinkedHashMap<>(vars);
+    newVars.put("nested", "othernested");
+    String newVelocityResult = renderWithResources("outer.vm", resources, newVars);
+    String newResult = template.evaluate(newVars);
+    assertThat(newResult).isEqualTo(newVelocityResult);
+
+    // This should not read othernested.vm again (the second assertion in resourceOpener above).
+    String newResultAgain = template.evaluate(newVars);
+    assertThat(newResultAgain).isEqualTo(newResult);
+  }
+
+  @Test
+  public void parseDirectiveWithParseException() throws IOException {
+    ImmutableMap<String, String> resources =
+        ImmutableMap.of("outer.vm", "#parse('bad.vm')", "bad.vm", "#end");
+    Template.ResourceOpener resourceOpener =
+        resourceName -> new StringReader(resources.get(resourceName));
+    Template template = Template.parseFrom("outer.vm", resourceOpener);
+    EvaluationException e =
+        assertThrows(EvaluationException.class, () -> template.evaluate(ImmutableMap.of()));
+    assertThat(e).hasCauseThat().isInstanceOf(ParseException.class);
+  }
+
+  @Test
+  public void parseDirectiveWithIoException() throws IOException {
+    ImmutableMap<String, String> resources = ImmutableMap.of("outer.vm", "#parse('bad.vm')");
+    Template.ResourceOpener resourceOpener =
+        resourceName -> {
+          String resource = resources.get(resourceName);
+          if (resource == null) {
+            throw new FileNotFoundException(resourceName);
+          }
+          return new StringReader(resource);
+        };
+    Template template = Template.parseFrom("outer.vm", resourceOpener);
+    EvaluationException e =
+        assertThrows(EvaluationException.class, () -> template.evaluate(ImmutableMap.of()));
+    assertThat(e).hasCauseThat().isInstanceOf(FileNotFoundException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().isEqualTo("bad.vm");
   }
 }

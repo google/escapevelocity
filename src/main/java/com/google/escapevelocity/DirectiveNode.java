@@ -216,7 +216,7 @@ abstract class DirectiveNode extends Node {
 
     @Override
     void render(EvaluationContext context, StringBuilder output) {
-      Macro macro = context.getMacro(name);
+      Macro macro = context.getMacros().get(name);
       if (macro == null) {
         throw evaluationException(
             "#" + name + " is neither a standard directive nor a macro that has been defined");
