@@ -24,7 +24,7 @@
 
   <groupId>com.google.escapevelocity</groupId>
   <artifactId>escapevelocity</artifactId>
-  <version>1.0</version>
+  <version>1.1-SNAPSHOT</version>
   <name>EscapeVelocity</name>
   <description>
     A reimplementation of a subset of the Apache Velocity templating system.
