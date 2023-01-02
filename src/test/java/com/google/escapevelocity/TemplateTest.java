@@ -1045,6 +1045,12 @@ public class TemplateTest {
     compare("x #* comment *#    #set($x = 0)  y");
     compare("$list.size()\n#set ($foo = 'bar')\n!", ImmutableMap.of("list", ImmutableList.of()));
     compare("$list[0]\n  #set ($foo = 'bar')\n!", ImmutableMap.of("list", ImmutableList.of("x")));
+
+    compare("  #set ($x = 3)\n");
+    compare("\n\n#set ($x = 3)\n");
+    compare("\n\n  #set ($x = 3)\n");
+    compare(
+        "  #foreach ($i in [1..3])\n  #set ($j = \"!$i!\")\n  #set ($k = $i + 1)\n  $j$k\n  #end");
   }
 
 

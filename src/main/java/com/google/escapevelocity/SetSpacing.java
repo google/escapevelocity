@@ -41,10 +41,13 @@ final class SetSpacing {
    * <p>The whitespace in question can include newlines, except when <i>thing</i> is a reference.
    */
   static boolean shouldRemoveLastNodeBeforeSet(List<Node> nodes) {
-    if (nodes.size() < 2) {
+    if (nodes.isEmpty()) {
       return false;
     }
     Node potentialSpaceBeforeSet = Iterables.getLast(nodes);
+    if (nodes.size() == 1) {
+      return potentialSpaceBeforeSet.isHorizontalWhitespace();
+    }
     Node beforeSpace = nodes.get(nodes.size() - 2);
     if (beforeSpace instanceof ReferenceNode) {
       return potentialSpaceBeforeSet.isHorizontalWhitespace();
