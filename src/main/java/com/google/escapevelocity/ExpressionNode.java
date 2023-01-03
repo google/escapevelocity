@@ -49,7 +49,11 @@ abstract class ExpressionNode extends Node {
       }
       throw evaluationException("Null value for " + this);
     }
-    output.append(rendered);
+    if (rendered instanceof Node) { // $x when we earlier did #define ($x) ... #end
+      ((Node) rendered).render(context, output);
+    } else {
+      output.append(rendered);
+    }
   }
 
   /**

@@ -55,6 +55,26 @@ abstract class DirectiveNode extends Node {
   }
 
   /**
+   * A node in the parse tree representing a {@code #define} construct. Evaluating
+   * {@code #define ($x) foo $bar #end} will set {@code $x} to the given sequence of nodes. It does
+   * not produce any text in the output.
+   */
+  static class DefineNode extends DirectiveNode {
+    private final String var;
+    private final Node body;
+
+    DefineNode(String var, Node body) {
+      super(body.resourceName, body.lineNumber);
+      this.var = var;
+      this.body = body;
+    }
+
+    @Override void render(EvaluationContext context, StringBuilder output) {
+      context.setVar(var, body);
+    }
+  }
+
+  /**
    * A node in the parse tree representing an {@code #if} construct. All instances of this class
    * have a <i>true</i> subtree and a <i>false</i> subtree. For a plain {@code #if (cond) body
    * #end}, the false subtree will be empty. For {@code #if (cond1) body1 #elseif (cond2) body2

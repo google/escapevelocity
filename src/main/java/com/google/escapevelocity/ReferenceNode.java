@@ -51,6 +51,20 @@ abstract class ReferenceNode extends ExpressionNode {
   }
 
   /**
+   * Evaluates the first part of a complex reference, for example {@code $foo} in {@code $foo.bar}.
+   * It must not be null, and it must not be the result of a {@code #define}.
+   */
+  Object evaluateLhs(ReferenceNode lhs, EvaluationContext context) {
+    Object lhsValue = lhs.evaluate(context);
+    if (lhsValue == null) {
+      throw evaluationExceptionInThis(lhs + " must not be null");
+    } else if (lhsValue instanceof Node) {
+      throw evaluationExceptionInThis(lhs + " comes from #define");
+    }
+    return lhsValue;
+  }
+
+  /**
    * A node in the parse tree that is a plain reference such as {@code $x}. This node may appear
    * inside a more complex reference like {@code $x.foo}.
    */
@@ -101,10 +115,7 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       // We don't propagate undefinedIsFalse because we don't allow $foo.bar if $foo is undefined,
       // even inside an #if expression.
-      Object lhsValue = lhs.evaluate(context);
-      if (lhsValue == null) {
-        throw evaluationExceptionInThis(lhs + " must not be null");
-      }
+      Object lhsValue = evaluateLhs(lhs, context);
       // If this is a Map, then Velocity looks up the property in the map.
       if (lhsValue instanceof Map<?, ?>) {
         Map<?, ?> map = (Map<?, ?>) lhsValue;
@@ -171,10 +182,7 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       // We don't propagate undefinedIsFalse because we don't allow $foo[0] if $foo is undefined,
       // even inside an #if expression.
-      Object lhsValue = lhs.evaluate(context);
-      if (lhsValue == null) {
-        throw evaluationExceptionInThis(lhs + " must not be null");
-      }
+      Object lhsValue = evaluateLhs(lhs, context);
       if (lhsValue instanceof List<?>) {
         Object indexValue = index.evaluate(context);
         if (!(indexValue instanceof Integer)) {
@@ -251,10 +259,7 @@ abstract class ReferenceNode extends ExpressionNode {
     @Override Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
       // We don't propagate undefinedIsFalse because we don't allow $foo.bar() if $foo is undefined,
       // even inside an #if expression.
-      Object lhsValue = lhs.evaluate(context);
-      if (lhsValue == null) {
-        throw evaluationExceptionInThis(lhs + " must not be null");
-      }
+      Object lhsValue = evaluateLhs(lhs, context);
       try {
         return evaluate(context, lhsValue, lhsValue.getClass());
       } catch (EvaluationException e) {

@@ -232,7 +232,7 @@ public class TemplateTest {
   @Test
   public void unsupportedDirectives_paren() throws Exception {
     String[] unsupportedDirectives = {
-      "#break($foreach)", "#define($foo)", "#evaluate('x')", "#include('x.vm')",
+      "#break($foreach)", "#evaluate('x')", "#include('x.vm')",
     };
     for (String unsupportedDirective : unsupportedDirectives) {
       Template template = Template.parseFrom(new StringReader(unsupportedDirective));
@@ -629,6 +629,40 @@ public class TemplateTest {
   @Test
   public void newlineInSet() {
     compare("foo #set ($x\n  = 17)\nbar $x", ImmutableMap.<String, Object>of());
+  }
+
+  /**
+   * Tests the {@code #define} directive. This is mostly useless since macros do essentially the
+   * same thing and have parameters. We support it mainly because it is not much harder than
+   * documenting that we don't.
+   */
+  @Test
+  public void define() {
+    compare(
+        "#define ($hello) Hello, world #set ($x = $x + 1) $x #end $hello $hello",
+        ImmutableMap.of("x", 17));
+    compare(
+        "#define ($hello)\n Hello, world \n#set ($x = $x + 1) $x #end $hello $hello",
+        ImmutableMap.of("x", 17));
+    compare("#define ($hello) 23 #end #set ($hello = 17) $hello");
+    compare("#set ($hello = 17) #define ($hello) 23 skidoo #end $hello");
+    compare(
+        "Hello ${foo}!\n"
+        + "#define ($foo) darkness, my old friend #end\n"
+        + "Hello ${foo}!\n",
+        ImmutableMap.of("foo", "World"));
+    compare(
+        "#define ($recur) $x #set ($x = $x - 1) #if ($x > 0) $recur #end #end",
+        ImmutableMap.of("x", 5));
+    expectException(
+        "#define ($hello) $x #end #set ($x = 1) #set ($y = $hello.foo)",
+        "$hello comes from #define");
+    expectException(
+        "#define ($hello) $x #end #set ($x = 1) #set ($y = $hello.foo())",
+        "$hello comes from #define");
+    expectException(
+        "#define ($hello) $x #end #set ($x = 1) #set ($y = $hello[0])",
+        "$hello comes from #define");
   }
 
   @Test
@@ -1098,6 +1132,20 @@ public class TemplateTest {
         + "#m(17 23) #m(23 17) #m(17 17)\n"
         + "$x";
     compare(template, ImmutableMap.of("x", "tiddly"));
+  }
+
+  @Test
+  public void recursiveMacro() {
+    String template =
+        "#macro (m $s)\n"
+            + "$s\n"
+            + "  #if (! $s.empty)\n"
+            + "    #set ($s = $s.substring(1))\n"
+            + "    #m($s)\n"
+            + "  #end\n"
+            + "#end\n"
+            + "#m('foobar')\n";
+    compare(template);
   }
 
   /**

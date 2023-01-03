@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
+import com.google.escapevelocity.DirectiveNode.DefineNode;
 import com.google.escapevelocity.DirectiveNode.ForEachNode;
 import com.google.escapevelocity.DirectiveNode.IfNode;
 import com.google.escapevelocity.DirectiveNode.SetNode;
@@ -375,6 +376,9 @@ class Parser {
       case "set":
         node = parseSet();
         break;
+      case "define":
+        node = parseDefine();
+        break;
       case "parse":
         node = parseParse();
         break;
@@ -483,6 +487,24 @@ class Parser {
     ExpressionNode expression = parseExpression();
     expect(')');
     return new SetNode(var, expression);
+  }
+
+  /**
+   * Parses a {@code #define} directive from the reader.
+   *
+   * <pre>{@code
+   * #define ( $<id> ) <balanced-tokens> #end
+   * }</pre>
+   */
+  private Node parseDefine() throws IOException {
+    int startLine = lineNumber();
+    expect('(');
+    expect('$');
+    String var = parseId("#define variable");
+    expect(')');
+    ParseResult parseResult =
+        skipNewlineAndParseToStop(END_CLASS, () -> "parsing #define starting on line " + startLine);
+    return new DefineNode(var, Node.cons(resourceName, startLine, parseResult.nodes));
   }
 
   /**
