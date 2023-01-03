@@ -436,8 +436,15 @@ class Parser {
   private Node parseForEach() throws IOException {
     int startLine = lineNumber();
     expect('(');
-    expect('$');
-    String var = parseId("For-each variable");
+    skipSpace();
+    if (c != '$') {
+      throw parseException("Expected variable beginning with '$' for #foreach");
+    }
+    Node varNode = parseDollar();
+    if (!(varNode instanceof PlainReferenceNode)) {
+      throw parseException("Expected simple variable for #foreach");
+    }
+    String var = ((PlainReferenceNode) varNode).id;
     skipSpace();
     boolean bad = false;
     if (c != 'i') {

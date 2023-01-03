@@ -938,6 +938,17 @@ public class TemplateTest {
         ImmutableMap.of("c", new String[] {"foo", "bar", "baz"}));
     compare("x#foreach ($x in $c) <$x> #end y",
         ImmutableMap.of("c", ImmutableMap.of("foo", "bar", "baz", "buh")));
+    compare("x#foreach (${x} in $c) <$x> #end y",
+        ImmutableMap.of("c", ImmutableMap.of("foo", "bar", "baz", "buh")));
+    compare("x#foreach ($!{x} in $c) <$x> #end y",
+        ImmutableMap.of("c", ImmutableMap.of("foo", "bar", "baz", "buh")));
+  }
+
+  @Test
+  public void forEachBad() {
+    expectException("#foreach (x in $c) <$x> #end", "Expected variable beginning with '$'");
+    expectException("#foreach ($x.foo in $c) <$x> #end", "Expected simple variable");
+    expectException("#foreach ($ in $c) #end", "Expected simple variable");
   }
 
   @Test
