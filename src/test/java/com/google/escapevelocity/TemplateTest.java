@@ -232,7 +232,7 @@ public class TemplateTest {
   @Test
   public void unsupportedDirectives_paren() throws Exception {
     String[] unsupportedDirectives = {
-      "#break($foreach)", "#evaluate('x')", "#include('x.vm')",
+      "#break($foreach)", "#include('x.vm')",
     };
     for (String unsupportedDirective : unsupportedDirectives) {
       Template template = Template.parseFrom(new StringReader(unsupportedDirective));
@@ -1395,6 +1395,19 @@ public class TemplateTest {
   @Test
   public void unclosedBlockComment() {
     compare("foo\nbar #*\nblah\nblah");
+  }
+
+  @Test
+  public void evaluate() {
+    compare("#evaluate('foo $x bar')", ImmutableMap.of("x", "baz"));
+    compare("#evaluate('foo #set ($x = 17) $x bar')");
+    compare("#evaluate($x) $y", ImmutableMap.of("x", "#set ($y = 'foo')"));
+    compare("#set($nested = '#set ($y = \"foo\")')\n"
+        + "#evaluate('#evaluate ($nested)')\n"
+        + "$y");
+    compare("#evaluate ('$x')\nnext line", ImmutableMap.of("x", "foo"));
+    compare("#evaluate($null)", Collections.singletonMap("null", null));
+    expectException("#evaluate(23)", "Argument to #evaluate must be a string: 23");
   }
 
   @Test

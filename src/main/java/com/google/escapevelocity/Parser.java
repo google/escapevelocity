@@ -386,6 +386,8 @@ class Parser {
         break;
       case "macro":
         return parseMacroDefinition();
+      case "evaluate":
+        return parseEvaluate();
       default:
         node = parseMacroCall("#", directive);
     }
@@ -1331,6 +1333,59 @@ class Parser {
         node.render(context, sb);
       }
       return sb.toString();
+    }
+  }
+
+  /**
+   * Parses an {@code #evaluate} token from the reader.
+   *
+   * <pre>{@code
+   * #evaluate ( <primary> )
+   * }</pre>
+   */
+  private Node parseEvaluate() throws IOException {
+    int startLine = lineNumber();
+    expect('(');
+    ExpressionNode expression = parsePrimary();
+    expect(')');
+    if (c == '\n') {
+      next();
+    }
+    return new EvaluateNode(resourceName, startLine, expression);
+  }
+
+  /**
+   * An {@code #evaluate} directive. When we encounter {@code #evaluate (<foo>)}, we determine the
+   * value of {@code <foo>}, which must be a string, then we parse that string as a template and
+   * evaluate it.
+   */
+  private class EvaluateNode extends Node {
+    private final ExpressionNode expression;
+
+    EvaluateNode(String resourceName, int lineNumber, ExpressionNode expression) {
+      super(resourceName, lineNumber);
+      this.expression = expression;
+    }
+
+    @Override
+    void render(EvaluationContext context, StringBuilder sb) {
+      Object valueObject = expression.evaluate(context);
+      if (valueObject == null) { // Velocity ignores an #evaluate with a null argument.
+        return;
+      }
+      if (!(valueObject instanceof String)) {
+        throw evaluationException("Argument to #evaluate must be a string: " + valueObject);
+      }
+      String value = (String) valueObject;
+      String where = "#evaluate " + ParseException.where(resourceName, lineNumber());
+      Template template;
+      try {
+        Parser parser = new Parser(new StringReader(value), where, resourceOpener, parseCache);
+        template = parser.parse();
+      } catch (IOException e) {
+        throw evaluationException(e);
+      }
+      template.render(context, sb);
     }
   }
 
