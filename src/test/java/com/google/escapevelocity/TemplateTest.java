@@ -1326,6 +1326,67 @@ public class TemplateTest {
   }
 
   @Test
+  public void macroWithBody() {
+    // The #if ($bodyContent) is needed because Velocity treats $bodyContent as undefined if the
+    // macro is invoked as #withBody rather than #@withBody. The documented examples use
+    // $!bodyContent but that doesn't work if there is no body and Velocity is in strict ref mode.
+    String template =
+        "#macro(withBody $x)\n"
+        + "$x\n#if ($bodyContent) $bodyContent #end\n"
+        + "#end\n"
+        + "#withBody('foo')\n"
+        + "#@withBody('bar')\n"
+        + "#if (0 == 1) what #else yes #end\n"
+        + "#end ## end of #@withBody";
+    compare(template);
+  }
+
+  @Test
+  public void nestedMacrosWithBodies() {
+    String template =
+        "#macro(outer $x)\n"
+        + "$x $!bodyContent $x\n"
+        + "#end\n"
+        + "#macro(inner $x)\n"
+        + "[$x] $!bodyContent [$x]\n"
+        + "#end\n"
+        + "#@outer('foo')\n"
+        + "before inner\n"
+        + "#@inner('bar')\n"
+        + "in inner\n"
+        + "#end ## inner\n"
+        + "after inner\n"
+        + "#end ## outer\n";
+    compare(template);
+  }
+
+  @Test
+  public void bodyContentTwice() {
+    String template =
+        "#macro(one)\n"
+        + "[$bodyContent]\n"
+        + "#end\n"
+        + "#macro(two)\n"
+        + "#set($bodyContentCopy = \"$bodyContent\")\n"
+        + "<#@one()$bodyContentCopy#end>\n"
+        + "#end\n"
+        + "#@two()foo#end\n";
+    // Velocity doesn't handle this well. It shouldn't be necessary to make $bodyContentCopy; we
+    // should just be able to use $bodyContent. But that gets an exception: "Reference $bodyContent
+    // evaluated to object org.apache.velocity.runtime.directive.Block$Reference whose toString()
+    // method returned null". By evaluating it into $bodyContentCopy we avoid whatever confusion
+    // that was. This is probably related to
+    // https://issues.apache.org/jira/projects/VELOCITY/issues/VELOCITY-940.
+    compare(template);
+  }
+
+  @Test
+  public void notMacroCall() {
+    compare("#@ foo");
+    compare("#@foo no parens");
+  }
+
+  @Test
   public void unclosedBlockQuote() {
     String template = "foo\nbar #[[\nblah\nblah";
     expectException(template, "Unterminated #[[ - did not see matching ]]#, on line 2");

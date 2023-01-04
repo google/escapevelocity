@@ -263,6 +263,8 @@ class Parser {
           return parseHashSquare();
         case '{':
           return parseDirective();
+        case '@':
+          return parseMacroCallWithBody();
         default:
           if (isAsciiLetter(c)) {
             return parseDirective();
@@ -385,7 +387,7 @@ class Parser {
       case "macro":
         return parseMacroDefinition();
       default:
-        node = parsePossibleMacroCall(directive);
+        node = parseMacroCall("#", directive);
     }
     // Velocity skips a newline after any directive. In the case of #if etc, we'll have done this
     // when we stopped scanning the body at #end, so in those cases we return directly rather than
@@ -596,8 +598,9 @@ class Parser {
    * ...
    * }</pre>
    */
-  private Node parsePossibleMacroCall(String directive) throws IOException {
-    StringBuilder sb = new StringBuilder("#").append(directive);
+  private Node parseMacroCall(String prefix, String directive) throws IOException {
+    int startLine = lineNumber();
+    StringBuilder sb = new StringBuilder(prefix).append(directive);
     while (Character.isWhitespace(c)) {
       sb.appendCodePoint(c);
       next();
@@ -629,8 +632,27 @@ class Parser {
         next();
       }
     }
+    Node bodyContent;
+    if (prefix.equals("#")) {
+      bodyContent = null;
+    } else {
+      ParseResult parseResult =
+          skipNewlineAndParseToStop(
+              END_CLASS, () -> "#@" + directive + " starting on line " + startLine);
+      bodyContent = Node.cons(resourceName, startLine, parseResult.nodes);
+    }
     return new DirectiveNode.MacroCallNode(
-        resourceName, lineNumber(), directive, parameterNodes.build());
+        resourceName, lineNumber(), directive, parameterNodes.build(), bodyContent);
+  }
+
+  private Node parseMacroCallWithBody() throws IOException {
+    assert c == '@';
+    next();
+    if (!isAsciiLetter(c)) {
+      return parsePlainText("#@");
+    }
+    String id = parseId("#@");
+    return parseMacroCall("#@", id);
   }
 
   /**

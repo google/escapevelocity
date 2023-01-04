@@ -49,7 +49,8 @@ abstract class ExpressionNode extends Node {
       }
       throw evaluationException("Null value for " + this);
     }
-    if (rendered instanceof Node) { // $x when we earlier did #define ($x) ... #end
+    if (rendered instanceof Node) {
+      // A macro's $bodyContent, or $x when we earlier did #define ($x) ... #end
       ((Node) rendered).render(context, output);
     } else {
       output.append(rendered);

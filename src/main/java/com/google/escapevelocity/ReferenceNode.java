@@ -52,14 +52,15 @@ abstract class ReferenceNode extends ExpressionNode {
 
   /**
    * Evaluates the first part of a complex reference, for example {@code $foo} in {@code $foo.bar}.
-   * It must not be null, and it must not be the result of a {@code #define}.
+   * It must not be null, and it must not be a macro's {@code $bodyContent} or the result of a
+   * {@code #define}.
    */
   Object evaluateLhs(ReferenceNode lhs, EvaluationContext context) {
     Object lhsValue = lhs.evaluate(context);
     if (lhsValue == null) {
       throw evaluationExceptionInThis(lhs + " must not be null");
     } else if (lhsValue instanceof Node) {
-      throw evaluationExceptionInThis(lhs + " comes from #define");
+      throw evaluationExceptionInThis(lhs + " comes from #define or is a macro's $bodyContent");
     }
     return lhsValue;
   }

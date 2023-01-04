@@ -223,15 +223,18 @@ abstract class DirectiveNode extends Node {
   static class MacroCallNode extends DirectiveNode {
     private final String name;
     private final ImmutableList<ExpressionNode> thunks;
+    private final Node bodyContent;
 
     MacroCallNode(
         String resourceName,
         int lineNumber,
         String name,
-        ImmutableList<ExpressionNode> argumentNodes) {
+        ImmutableList<ExpressionNode> argumentNodes,
+        Node bodyContent) {
       super(resourceName, lineNumber);
       this.name = name;
       this.thunks = argumentNodes;
+      this.bodyContent = bodyContent;
     }
 
     @Override
@@ -250,7 +253,7 @@ abstract class DirectiveNode extends Node {
                 + ", got "
                 + thunks.size());
       }
-      macro.render(context, thunks, output);
+      macro.render(context, thunks, bodyContent, output);
     }
   }
 }

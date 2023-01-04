@@ -30,34 +30,49 @@ import java.util.Map;
  * means that we need to set each parameter variable to the node in the parse tree that corresponds
  * to it, and arrange for that node to be evaluated when the variable is actually referenced.
  *
+ * <p>There are two ways to invoke a macro. {@code #m('foo', 'bar')} sets $x and $y. {@code
+ * #@m('foo', 'bar') ... #end} sets $x and $y, and also sets $bodyContent to the template text
+ * {@code ...}.
+ *
  * @author emcmanus@google.com (Éamonn McManus)
  */
 class Macro {
   private final int definitionLineNumber;
   private final String name;
   private final ImmutableList<String> parameterNames;
-  private final Node body;
+  private final Node macroBody;
 
-  Macro(int definitionLineNumber, String name, List<String> parameterNames, Node body) {
+  Macro(int definitionLineNumber, String name, List<String> parameterNames, Node macroBody) {
     this.definitionLineNumber = definitionLineNumber;
     this.name = name;
     this.parameterNames = ImmutableList.copyOf(parameterNames);
-    this.body = body;
+    this.macroBody = macroBody;
   }
 
   int parameterCount() {
     return parameterNames.size();
   }
 
-  void render(EvaluationContext context, List<ExpressionNode> thunks, StringBuilder output) {
+  /**
+   * Renders a call to this macro with the arguments in {@code thunks} and with a possibly-null
+   * {@code bodyContent}. The {@code bodyContent} is non-null if the macro call looks like
+   * {@code #@foo(...) ... #end}; the {@code #@} indicates that the text up to the matching
+   * {@code #end} should be made available as the variable {@code $bodyContent} inside the macro.
+   */
+  void render(
+      EvaluationContext context,
+      List<ExpressionNode> thunks,
+      Node bodyContent,
+      StringBuilder output) {
     try {
       Verify.verify(thunks.size() == parameterNames.size(), "Argument mismatch for %s", name);
       Map<String, ExpressionNode> parameterThunks = new LinkedHashMap<>();
       for (int i = 0; i < parameterNames.size(); i++) {
         parameterThunks.put(parameterNames.get(i), thunks.get(i));
       }
-      EvaluationContext newContext = new MacroEvaluationContext(parameterThunks, context);
-      body.render(newContext, output);
+      EvaluationContext newContext =
+          new MacroEvaluationContext(parameterThunks, context, bodyContent);
+      macroBody.render(newContext, output);
     } catch (EvaluationException e) {
       EvaluationException newException = new EvaluationException(
           "In macro #" + name + " defined on line " + definitionLineNumber + ": " + e.getMessage());
@@ -85,15 +100,22 @@ class Macro {
   static class MacroEvaluationContext implements EvaluationContext {
     private final Map<String, ExpressionNode> parameterThunks;
     private final EvaluationContext originalEvaluationContext;
+    private final Node bodyContent;
 
     MacroEvaluationContext(
-        Map<String, ExpressionNode> parameterThunks, EvaluationContext originalEvaluationContext) {
+        Map<String, ExpressionNode> parameterThunks,
+        EvaluationContext originalEvaluationContext,
+        Node bodyContent) {
       this.parameterThunks = parameterThunks;
       this.originalEvaluationContext = originalEvaluationContext;
+      this.bodyContent = bodyContent;
     }
 
     @Override
     public Object getVar(String var) {
+      if (bodyContent != null && var.equals("bodyContent")) {
+        return bodyContent;
+      }
       ExpressionNode thunk = parameterThunks.get(var);
       if (thunk == null) {
         return originalEvaluationContext.getVar(var);
@@ -109,7 +131,9 @@ class Macro {
 
     @Override
     public boolean varIsDefined(String var) {
-      return parameterThunks.containsKey(var) || originalEvaluationContext.varIsDefined(var);
+      return parameterThunks.containsKey(var)
+          || (bodyContent != null && var.equals("bodyContent"))
+          || originalEvaluationContext.varIsDefined(var);
     }
 
     @Override
