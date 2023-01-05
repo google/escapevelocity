@@ -17,6 +17,7 @@ package com.google.escapevelocity;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static com.google.common.truth.TruthJUnit.assume;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
@@ -25,14 +26,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.truth.Expect;
-import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -45,16 +43,12 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.apache.commons.collections.ExtendedProperties;
 import org.apache.velocity.VelocityContext;
-import org.apache.velocity.exception.ResourceNotFoundException;
+import org.apache.velocity.app.VelocityEngine;
 import org.apache.velocity.exception.VelocityException;
 import org.apache.velocity.runtime.RuntimeConstants;
-import org.apache.velocity.runtime.RuntimeInstance;
-import org.apache.velocity.runtime.log.NullLogChute;
-import org.apache.velocity.runtime.parser.node.SimpleNode;
-import org.apache.velocity.runtime.resource.Resource;
-import org.apache.velocity.runtime.resource.loader.ResourceLoader;
+import org.apache.velocity.runtime.resource.loader.StringResourceLoader;
+import org.apache.velocity.runtime.resource.util.StringResourceRepository;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -70,24 +64,45 @@ public class TemplateTest {
   @Rule public TestName testName = new TestName();
   @Rule public Expect expect = Expect.create();
 
-  private RuntimeInstance velocityRuntimeInstance;
+  private VelocityEngine velocityEngine;
+  private enum Version {V1, V2}
+  private static final Version VERSION;
 
-  @Before
-  public void initVelocityRuntimeInstance() {
-    velocityRuntimeInstance = newVelocityRuntimeInstance();
-    velocityRuntimeInstance.init();
+  static {
+    Version version;
+    try {
+      // The Runtime class was deprecated in v1.7 and deleted in v2.0.
+      Class.forName("org.apache.velocity.runtime.Runtime");
+      version = Version.V1;
+    } catch (ClassNotFoundException e) {
+      version = Version.V2;
+    }
+    VERSION = version;
   }
 
-  private RuntimeInstance newVelocityRuntimeInstance() {
-    RuntimeInstance runtimeInstance = new RuntimeInstance();
+  @Before
+  public void initVelocityEngine() {
+    velocityEngine = newVelocityEngine();
+    velocityEngine.init();
+  }
+
+  private VelocityEngine newVelocityEngine() {
+    VelocityEngine engine = new VelocityEngine();
 
     // Ensure that $undefinedvar will produce an exception rather than outputting $undefinedvar.
-    runtimeInstance.setProperty(RuntimeConstants.RUNTIME_REFERENCES_STRICT, "true");
+    engine.setProperty(RuntimeConstants.RUNTIME_REFERENCES_STRICT, "true");
+
+    // Set properties to make Velocity 2.x more like 1.7.
+    engine.setProperty("directive.if.empty_check", "false");
+    engine.setProperty("parser.allow_hyphen_in_identifiers", "true");
+    engine.setProperty("parser.space_gobbling", "bc");
 
     // Disable any logging that Velocity might otherwise see fit to do.
-    runtimeInstance.setProperty(RuntimeConstants.RUNTIME_LOG_LOGSYSTEM_CLASS, new NullLogChute());
-    runtimeInstance.setProperty(RuntimeConstants.RUNTIME_LOG_LOGSYSTEM, new NullLogChute());
-    return runtimeInstance;
+    // This has no effect on V2, but there you can shut logging up via slf4j.
+    engine.setProperty(
+        "runtime.log.logsystem.class", "org.apache.velocity.runtime.log.NullLogChute");
+
+    return engine;
   }
 
   private void compare(String template) {
@@ -126,16 +141,10 @@ public class TemplateTest {
   private String velocityRender(String template, Map<String, ?> vars) {
     VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
     StringWriter writer = new StringWriter();
-    SimpleNode parsedTemplate;
-    try {
-      parsedTemplate = velocityRuntimeInstance.parse(
-          new StringReader(template), testName.getMethodName());
-    } catch (org.apache.velocity.runtime.parser.ParseException e) {
-      throw new AssertionError(e);
-    }
-    boolean rendered = velocityRuntimeInstance.render(
-        velocityContext, writer, parsedTemplate.getTemplateName(), parsedTemplate);
-    assertThat(rendered).isTrue();
+    String templateName = testName.getMethodName();
+    boolean rendered =
+        velocityEngine.evaluate(velocityContext, writer, templateName, new StringReader(template));
+    assertWithMessage(templateName).that(rendered).isTrue();
     return writer.toString();
   }
 
@@ -149,17 +158,15 @@ public class TemplateTest {
       String template,
       Map<String, ?> vars,
       String expectedMessageSubstring) {
-    Exception velocityException = null;
-    try {
-      SimpleNode parsedTemplate =
-          velocityRuntimeInstance.parse(new StringReader(template), testName.getMethodName());
-      VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
-      velocityRuntimeInstance.render(
-          velocityContext, new StringWriter(), parsedTemplate.getTemplateName(), parsedTemplate);
-      fail("Velocity did not throw an exception for this template");
-    } catch (org.apache.velocity.runtime.parser.ParseException | VelocityException expected) {
-      velocityException = expected;
-    }
+    VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
+    String templateName = testName.getMethodName();
+    VelocityException velocityException =
+        assertThrows(
+            "Velocity did not throw an exception for this template",
+            VelocityException.class,
+            () ->
+                velocityEngine.evaluate(
+                    velocityContext, new StringWriter(), templateName, new StringReader(template)));
     try {
       Template parsedTemplate = Template.parseFrom(new StringReader(template));
       parsedTemplate.evaluate(vars);
@@ -501,13 +508,17 @@ public class TemplateTest {
   @Test
   public void substituteListIndexNotInteger() {
     expectException(
-        "$list['x']",
-        ImmutableMap.of("list", ImmutableList.of()),
-        "In $list['x']: list index is not an Integer: x");
-    expectException(
         "$list[$list[0]]",
         ImmutableMap.of("list", Collections.singletonList(null)),
         "In $list[$list[0]]: list index is not an Integer: null");
+
+    // In V2, a string gets parsed into an integer here, resulting in NumberFormatException.
+    // We expect a VelocityException subclass in this test, so for now we skip this check.
+    assume().that(VERSION).isEqualTo(Version.V1);
+    expectException(
+        "$list['x']",
+        ImmutableMap.of("list", ImmutableList.of()),
+        "In $list['x']: list index is not an Integer: x");
   }
 
   @Test
@@ -680,12 +691,17 @@ public class TemplateTest {
     compare("#set ($x = 'heaven ' + 17) $x");
 
     // Check that we copy Velocity here: these null references will be replaced by their source
-    // text, for example "$bar" for the null $bar reference in the first two.
-    compare("#set ($x = 'foo' + $bar) $x", Collections.singletonMap("bar", null));
+    // text, for example "$bar" for the null $bar reference here.
     compare("#set ($x = $bar + 'foo') $x", Collections.singletonMap("bar", null));
 
-    // This one results in "foo$bar + $bar" in both Velocity and EscapeVelocity. $bar + $bar is null
-    // and then 'foo' + null gets replaced by a representation of the source expression that
+    // In V2, if $bar is on the LHS of + it is as before, but on the RHS it is replaced by an empty
+    // string.
+    assume().that(VERSION).isEqualTo(Version.V1);
+
+    compare("#set ($x = 'foo' + $bar) $x", Collections.singletonMap("bar", null));
+
+    // This one results in "foo$bar + $bar" in both Velocity and EscapeVelocity. $bar + $bar is
+    // null and then 'foo' + null gets replaced by a representation of the source expression that
     // produced the null.
     compare("#set ($x = 'foo' + ($bar + $bar)) $x", Collections.singletonMap("bar", null));
   }
@@ -874,6 +890,10 @@ public class TemplateTest {
   public void funkyEquals() {
     compare("#set ($t = (123 == \"123\")) $t");
     compare("#set ($f = (123 == \"1234\")) $f");
+
+    // In V2, two objects are equal if they implement CharSequence and their characters are the
+    // same.
+    assume().that(VERSION).isEqualTo(Version.V1);
     compare("#set ($x = ($sb1 == $sb2)) $x", ImmutableMap.of(
         "sb1", (Object) new StringBuilder("123"),
         "sb2", (Object) new StringBuilder("123")));
@@ -1241,6 +1261,8 @@ public class TemplateTest {
 
   @Test
   public void callByMacro() {
+    // In V2, macro arguments are call-by-value rather than call-by-name.
+    assume().that(VERSION).isEqualTo(Version.V1);
     // Since #callByMacro1 never references its argument, $x.add("t") is never evaluated during it.
     // Since #callByMacro2 references its argument twice, $x.add("t") is evaluated twice during it.
     String template =
@@ -1284,6 +1306,9 @@ public class TemplateTest {
 
   @Test
   public void nameCaptureSwap() {
+    // In V2, macro arguments are call-by-value rather than call-by-name.
+    assume().that(VERSION).isEqualTo(Version.V1);
+
     // Here, the arguments $a and $b are variables rather than literals, which means that their
     // values change when we set those variables. #set($tmp = $a) changes the meaning of $b since
     // $b is the name $tmp. So #set($a = $b) shadows parameter $a with the value of $tmp, which we
@@ -1382,12 +1407,16 @@ public class TemplateTest {
 
   @Test
   public void notMacroCall() {
+    // In V2, you don't need () after a parameterless macro call.
+    assume().that(VERSION).isEqualTo(Version.V1);
     compare("#@ foo");
     compare("#@foo no parens");
   }
 
   @Test
   public void unclosedBlockQuote() {
+    // This is not an error in V2. https://issues.apache.org/jira/browse/VELOCITY-962
+    assume().that(VERSION).isEqualTo(Version.V1);
     String template = "foo\nbar #[[\nblah\nblah";
     expectException(template, "Unterminated #[[ - did not see matching ]]#, on line 2");
   }
@@ -1463,56 +1492,23 @@ public class TemplateTest {
     compare("#set ($nuller = \"$!{null}er\") $nuller", vars);
   }
 
-  /**
-   * A Velocity ResourceLoader that looks resources up in a map. This allows us to test directives
-   * that read "resources", for example {@code #parse}, without needing to make separate files to
-   * put them in.
-   */
-  private static final class MapResourceLoader extends ResourceLoader {
-    private final ImmutableMap<String, String> resourceMap;
-
-    MapResourceLoader(ImmutableMap<String, String> resourceMap) {
-      this.resourceMap = resourceMap;
-    }
-
-    @Override
-    public void init(ExtendedProperties configuration) {
-    }
-
-    @Override
-    public InputStream getResourceStream(String source) {
-      String resource = resourceMap.get(source);
-      if (resource == null) {
-        throw new ResourceNotFoundException(source);
-      }
-      return new ByteArrayInputStream(resource.getBytes(StandardCharsets.ISO_8859_1));
-    }
-
-    @Override
-    public boolean isSourceModified(Resource resource) {
-      return false;
-    }
-
-    @Override
-    public long getLastModified(Resource resource) {
-      return 0;
-    }
-  };
-
   private String renderWithResources(
       String templateResourceName,
       ImmutableMap<String, String> resourceMap,
       Map<String, String> vars) {
-    MapResourceLoader mapResourceLoader = new MapResourceLoader(resourceMap);
-    RuntimeInstance runtimeInstance = newVelocityRuntimeInstance();
-    runtimeInstance.setProperty("resource.loader", "map");
-    runtimeInstance.setProperty("map.resource.loader.instance", mapResourceLoader);
-    runtimeInstance.init();
-    org.apache.velocity.Template velocityTemplate =
-        runtimeInstance.getTemplate(templateResourceName);
+    String name = testName.getMethodName();
+    VelocityEngine engine = newVelocityEngine();
+    engine.setProperty("resource.loader", "string");
+    engine.setProperty("string.resource.loader.class", StringResourceLoader.class.getName());
+    engine.setProperty("string.resource.loader.repository.name", name);
+    engine.init();
+    StringResourceRepository repo = StringResourceLoader.getRepository(name);
+    resourceMap.forEach(repo::putStringResource);
     StringWriter velocityWriter = new StringWriter();
     VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
-    velocityTemplate.merge(velocityContext, velocityWriter);
+    boolean rendered =
+        engine.mergeTemplate(templateResourceName, "UTF-8", velocityContext, velocityWriter);
+    assertThat(rendered).isTrue();
     return velocityWriter.toString();
   }
 
