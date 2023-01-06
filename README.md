@@ -44,8 +44,7 @@ InputStream in = getClass().getResourceAsStream("foo.vm");
 if (in == null) {
   throw new IllegalArgumentException("Could not find resource foo.vm");
 }
-Reader reader = new BufferedReader(new InputStreamReader(in));
-Template template = Template.parseFrom(reader);
+Template template = Template.parseFrom(new InputStreamReader(in));
 ```
 
 ## Expanding a template
@@ -392,7 +391,7 @@ ResourceOpener resourceOpener = resourceName -> {
   if (inputStream == null) {
     throw new IOException("Unknown resource: " + resourceName);
   }
-  return new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+  return new InputStreamReader(inputStream, StandardCharsets.UTF_8);
 };
 Template template = Template.parseFrom("foo.vm", resourceOpener);
 ```

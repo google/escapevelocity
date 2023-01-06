@@ -76,10 +76,12 @@ public class Template {
   public interface ResourceOpener {
 
     /**
-     * Returns a {@code Reader} that will be used to read the given resource, then closed.
+     * Returns a {@code Reader} that will be used to read the given resource, then closed. The
+     * caller of this method will perform its own buffering (via {@link java.io.BufferedReader
+     * BufferedReader}), so the returned Reader doesn't need to be buffered.
      *
-     * @param resourceName the name of the resource to be read. This can be null if
-     *     {@code Template.parseFrom} is called with a null {@code resourceName}.
+     * @param resourceName the name of the resource to be read. This can be null if {@code
+     *     Template.parseFrom} is called with a null {@code resourceName}.
      * @return a {@code Reader} for the resource.
      * @throws IOException if the resource cannot be opened.
      */
@@ -88,11 +90,13 @@ public class Template {
 
   /**
    * Parses a VTL template from the given {@code Reader}. The template cannot reference other
-   * templates (for example with {@code #parse}). For that, use
-   * {@link #parseFrom(String, ResourceOpener)}.
+   * templates (for example with {@code #parse}). For that, use {@link #parseFrom(String,
+   * ResourceOpener)}.
    *
    * @param reader a Reader that will supply the text of the template. It will be closed on return
-   *     from this method.
+   *     from this method. The Reader will be buffered internally by this method (via {@link
+   *     java.io.BufferedReader BufferedReader}), so the passed-in Reader doesn't need to perform
+   *     its own buffering.
    * @return an object representing the parsed template.
    * @throws IOException if there is an exception reading from {@code reader}, or if the template
    *     references another template via {@code #parse}.
