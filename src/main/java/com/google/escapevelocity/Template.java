@@ -175,7 +175,13 @@ public class Template {
     StringBuilder output = new StringBuilder(1024);
     // The default size of 16 is going to be too small for the vast majority of rendered templates.
     // We use a somewhat arbitrary larger starting size instead.
-    render(evaluationContext, output);
+    try {
+      render(evaluationContext, output);
+    } catch (BreakException e) {
+      if (e.forEachScope()) {
+        throw new EvaluationException("#break($foreach) not inside #foreach: " + e.getMessage());
+      }
+    }
     return output.toString();
   }
 

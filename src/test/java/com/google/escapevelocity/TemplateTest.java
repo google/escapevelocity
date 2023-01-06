@@ -239,7 +239,7 @@ public class TemplateTest {
   @Test
   public void unsupportedDirectives_paren() throws Exception {
     String[] unsupportedDirectives = {
-      "#break($foreach)", "#include('x.vm')",
+      "#include('x.vm')",
     };
     for (String unsupportedDirective : unsupportedDirectives) {
       Template template = Template.parseFrom(new StringReader(unsupportedDirective));
@@ -256,7 +256,7 @@ public class TemplateTest {
 
   @Test
   public void unsupportedDirectives_noParen() {
-    String[] unsupportedDirectives = {"#break", "#stop"};
+    String[] unsupportedDirectives = {"#stop"};
     for (String unsupportedDirective : unsupportedDirectives) {
       ParseException e =
           assertThrows(
@@ -1080,6 +1080,29 @@ public class TemplateTest {
   }
 
   @Test
+  public void forEachForEach() {
+    // There's no reason to do this, but if you do you get {} for $foreach.
+    compare("#foreach ($x in [1..10]) [$foreach] #end");
+  }
+
+  @Test
+  public void breakDirective() {
+    compare("#foreach ($x in [1..10]) $x #if ($x == 5) #break #end #end");
+    compare("#foreach ($x in [1..10]) $x #if ($x == 5)\n#break\n#end #end");
+    compare("#foreach ($x in [1..10]) $x #if ($x == 5)\n#break ($foreach)\n#end #end");
+    compare("#foreach ($x in [1..10]) $x #if ($x == 5)\n#break\n($foreach)\nignored#end #end");
+    compare("#foreach ($x in [1..10]) $x #set ($f = $foreach) #break($f) #end");
+    compare("foo bar #break baz"); // should render as "foo bar ".
+    expectException(
+        "#foreach ($x in [1..10]) #break($null) #end",
+        Collections.singletonMap("null", null),
+        "Argument to #break is not a supported scope: $null");
+    expectException("foo bar #break($foreach) baz", "Undefined reference $foreach");
+    expectException("#set ($x = 17) #break($x)", "Argument to #break is not a supported scope: $x");
+    expectException("#foreach ($x in [1..10]) $x #break($foreach #end", "Expected )");
+  }
+
+  @Test
   public void setSpacing() {
     // The spacing in the output from #set is eccentric.
     // If the #set is preceded by a reference, with only horizontal space intervening, that space
@@ -1587,7 +1610,9 @@ public class TemplateTest {
             + "nested template last line\n",
          "othernested.vm",
          "#macro (decorate $a $b) [ $a | $b ] #end\n"
-             + "#set ($baz = 17)\n");
+             + "#set ($baz = 17)\n"
+             + "#break\n" // this breaks from the #parse of othernested.vm
+             + "not included");
     ImmutableMap<String, String> vars = ImmutableMap.of(
         "foo", "foovalue", "bar", "barvalue", "nested", "nested");
 

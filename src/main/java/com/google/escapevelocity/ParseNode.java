@@ -70,6 +70,13 @@ class ParseNode extends Node {
     // nested template with the pre-processed macros available. The macros will also be available in
     // the calling template after the #parse.
     template.getMacros().forEach((name, macro) -> context.getMacros().putIfAbsent(name, macro));
-    template.render(context, output);
+    try {
+      template.render(context, output);
+    } catch (BreakException e) {
+      if (e.forEachScope()) { // this isn't for us
+        throw e;
+      }
+      // OK: the #break has broken out of this #parse
+    }
   }
 }

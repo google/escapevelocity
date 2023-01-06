@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
+import com.google.escapevelocity.DirectiveNode.BreakNode;
 import com.google.escapevelocity.DirectiveNode.DefineNode;
 import com.google.escapevelocity.DirectiveNode.ForEachNode;
 import com.google.escapevelocity.DirectiveNode.IfNode;
@@ -375,6 +376,8 @@ class Parser {
         break;
       case "foreach":
         return parseForEach();
+      case "break":
+        return parseBreak();
       case "set":
         node = parseSet();
         break;
@@ -474,6 +477,30 @@ class Parser {
             END_CLASS, () -> "parsing #foreach starting on line " + startLine);
     Node body = Node.cons(resourceName, startLine, parsedBody.nodes);
     return new ForEachNode(resourceName, startLine, var, collection, body);
+  }
+
+  /**
+   * Parses a {@code #break} token from the reader.
+   *
+   * <p>There is an optional scope, so you can write {@code #break ($foreach)},
+   * {@code #break ($foreach.parent)}, {@code #break ($parse)}, and so on. We only support
+   * {@code $foreach}. If there is no scope, we will break from the nearest {@code #foreach} or
+   * {@code #parse}, or, if there is none, from the whole template.
+   */
+  private Node parseBreak() throws IOException {
+    // Unlike every other directive, #break has an *optional* parenthesized parameter. But even if
+    // we *don't* see a `(` after skipping spaces, we can safely discard the spaces. It's a #break,
+    // so any plain text after it will never be rendered anyway. (We could even discard any
+    // non-space plain text, but it's probably not worth bothering.) For the same reason, we don't
+    // need to skip a \n that might occur after the #break.
+    skipSpace();
+    ExpressionNode scope = null;
+    if (c == '(') {
+      next();
+      scope = parsePrimary();
+      expect(')');
+    }
+    return new BreakNode(resourceName, lineNumber(), scope);
   }
 
   /**
@@ -584,7 +611,7 @@ class Parser {
    * {@code (} then we will treat it as an undefined macro, which is fine.
    */
   private static final ImmutableSet<String> UNSUPPORTED_VELOCITY_DIRECTIVES =
-      ImmutableSet.of("break", "stop");
+      ImmutableSet.of("stop");
 
   /**
    * Parses an identifier after {@code #} that is not one of the standard directives. The assumption

@@ -142,9 +142,13 @@ abstract class DirectiveNode extends Node {
       Runnable undo = context.setVar(var, null);
       CountingIterator it = new CountingIterator(iterable.iterator());
       Runnable undoForEach = context.setVar("foreach", new ForEachVar(it));
-      while (it.hasNext()) {
-        context.setVar(var, it.next());
-        body.render(context, output);
+      try {
+        while (it.hasNext()) {
+          context.setVar(var, it.next());
+          body.render(context, output);
+        }
+      } catch (BreakException e) {
+        // OK: we've broken out of the #foreach
       }
       undoForEach.run();
       undo.run();
@@ -207,6 +211,43 @@ abstract class DirectiveNode extends Node {
       public int getCount() {
         return iterator.index() + 1;
       }
+
+      // This is consistent with Velocity, if you reference plain $foreach in a template.
+      // (It is "{}" because $foreach is a Scope there, which is a subclass of AbstractMap.)
+      @Override
+      public String toString() {
+        return "{}";
+      }
+    }
+  }
+
+  /**
+   * A node in the parse tree representing a {@code #break} directive. The directive has an optional
+   * scope argument, so you can write {@code #break($foreach)} to break from the nearest
+   * {@code #foreach} loop. That is in fact the only scope we support, so we just have a boolean
+   * that indicates if it is present. Otherwise we break from the nearest {@code #foreach} or
+   * {@code #parse} or from the whole template.
+   */
+  static class BreakNode extends DirectiveNode {
+    private final ExpressionNode scope;
+
+    BreakNode(String resourceName, int lineNumber, ExpressionNode scope) {
+      super(resourceName, lineNumber);
+      this.scope = scope;
+    }
+
+    @Override void render(EvaluationContext context, StringBuilder output) {
+      boolean forEachScope = false;
+      if (scope != null) {
+        Object scopeValue = scope.evaluate(context);
+        if (scopeValue instanceof ForEachNode.ForEachVar) {
+          forEachScope = true;
+        } else {
+          throw evaluationException("Argument to #break is not a supported scope: " + scope);
+        }
+      }
+      String message = "#break " + ParseException.where(resourceName, lineNumber);
+      throw new BreakException(message, forEachScope);
     }
   }
 
