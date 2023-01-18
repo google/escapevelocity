@@ -38,11 +38,6 @@ abstract class Node {
    */
   abstract void render(EvaluationContext context, StringBuilder output);
 
-  /** True if this node is just a span of whitespace in the text. */
-  boolean isWhitespace() {
-    return false;
-  }
-
   /** True if this node is just a span of horizontal whitespace in the text. */
   boolean isHorizontalWhitespace() {
     return false;

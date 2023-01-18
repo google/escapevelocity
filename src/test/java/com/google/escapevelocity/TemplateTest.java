@@ -49,7 +49,6 @@ import org.apache.velocity.exception.VelocityException;
 import org.apache.velocity.runtime.RuntimeConstants;
 import org.apache.velocity.runtime.resource.loader.StringResourceLoader;
 import org.apache.velocity.runtime.resource.util.StringResourceRepository;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
@@ -64,7 +63,6 @@ public class TemplateTest {
   @Rule public TestName testName = new TestName();
   @Rule public Expect expect = Expect.create();
 
-  private VelocityEngine velocityEngine;
   private enum Version {V1, V2}
   private static final Version VERSION;
 
@@ -78,12 +76,6 @@ public class TemplateTest {
       version = Version.V2;
     }
     VERSION = version;
-  }
-
-  @Before
-  public void initVelocityEngine() {
-    velocityEngine = newVelocityEngine();
-    velocityEngine.init();
   }
 
   private VelocityEngine newVelocityEngine() {
@@ -139,6 +131,8 @@ public class TemplateTest {
   }
 
   private String velocityRender(String template, Map<String, ?> vars) {
+    VelocityEngine velocityEngine = newVelocityEngine();
+    velocityEngine.init();
     VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
     StringWriter writer = new StringWriter();
     String templateName = testName.getMethodName();
@@ -158,6 +152,8 @@ public class TemplateTest {
       String template,
       Map<String, ?> vars,
       String expectedMessageSubstring) {
+    VelocityEngine velocityEngine = newVelocityEngine();
+    velocityEngine.init();
     VelocityContext velocityContext = new VelocityContext(new TreeMap<>(vars));
     String templateName = testName.getMethodName();
     VelocityException velocityException =
@@ -1105,10 +1101,11 @@ public class TemplateTest {
   @Test
   public void setSpacing() {
     // The spacing in the output from #set is eccentric.
-    // If the #set is preceded by a reference, with only horizontal space intervening, that space
-    // is deleted. But if there are newlines, nothing is deleted.
-    // If the #set is preceded by a directive (for example another #set), with only whitespace
-    // intervening, that whitespace is deleted. That includes newlines.
+    // If the #set is preceded by a reference or a comment or a directive (for example another #set)
+    // with only horizontal space intervening, that space is deleted. But if there are newlines,
+    // nothing is deleted. But, a newline immediately after a directive or comment is already
+    // deleted, and if only horizontal space remains before the #set, it is deleted.
+    compare("  #set ($x = 1)"); // preceding space is deleted
     compare("x#set ($x = 0)x");
     compare("x #set ($x = 0)x");
     compare("x #set ($x = 0) x");
@@ -1139,6 +1136,40 @@ public class TemplateTest {
     compare("\n\n  #set ($x = 3)\n");
     compare(
         "  #foreach ($i in [1..3])\n  #set ($j = \"!$i!\")\n  #set ($k = $i + 1)\n  $j$k\n  #end");
+
+    compare(
+        "#set ($foo = 17)\n" //
+        + "#set ($bar = 23)\n"
+        + "\n"
+        + "#set ($baz = 5)\n"
+        + "hello");
+
+    compare(
+        "## comment\n" //
+        + "\n"
+        + "\n"
+        + "#set ($foo = 17)\n"
+        + "hello");
+
+    compare(
+      "## comment\n" //
+      + "\n"
+      + "  #set ($foo = 17)\n"
+      + "hello");
+
+    compare(
+        "#macro (m)\n\n\n\n" //
+        + "#set ($foo = 17)\n"
+        + "hello\n"
+        + "#end\n"
+        + "#m()\n");
+
+    compare(
+        "#macro (m)\n" //
+        + "  #set ($foo = 17)\n"
+        + "hello\n"
+        + "#end\n"
+        + "#m()\n");
   }
 
 
