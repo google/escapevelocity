@@ -400,6 +400,8 @@ public class TemplateTest {
     public static String getName() {
       return "Noddy";
     }
+
+    private GetName() {}
   }
 
   @Test
@@ -1303,13 +1305,10 @@ public class TemplateTest {
         + "#callBySharing($y $map)\n"
         + "y is $y\n"
         + "map[x] is $map[\"x\"]\n";
-    Supplier<Map<String, Object>> makeMap = new Supplier<Map<String, Object>>() {
-      @Override public Map<String, Object> get() {
-        return ImmutableMap.<String, Object>of(
-            "y", "y",
-            "map", new HashMap<String, Object>(ImmutableMap.of("x", (Object) "foo")));
-      }
-    };
+    Supplier<Map<String, Object>> makeMap =
+        () ->
+            ImmutableMap.<String, Object>of(
+                "y", "y", "map", new HashMap<String, Object>(ImmutableMap.of("x", (Object) "foo")));
     compare(template, makeMap);
   }
 
@@ -1332,11 +1331,8 @@ public class TemplateTest {
         + "x = $x\n"
         + "#callByMacro2($x.add(\"t\"))\n"
         + "x = $x\n";
-    Supplier<Map<String, Object>> makeMap = new Supplier<Map<String, Object>>() {
-      @Override public Map<String, Object> get() {
-        return ImmutableMap.<String, Object>of("x", new ArrayList<Object>());
-      }
-    };
+    Supplier<Map<String, Object>> makeMap =
+        () -> ImmutableMap.<String, Object>of("x", new ArrayList<Object>());
     compare(template, makeMap);
   }
 
@@ -1502,14 +1498,14 @@ public class TemplateTest {
 
   @Test
   public void nullMethodCall() throws IOException {
-    Map<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
+    ImmutableMap<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
     expectException("==$map.get(23)==", vars, "Null value for $map.get(23)");
     compare("==$!map.get(23)==", vars);
   }
 
   @Test
   public void nullIndex() throws IOException {
-    Map<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
+    ImmutableMap<String, Object> vars = ImmutableMap.of("map", ImmutableMap.of());
     expectException("==$map[23]==", vars, "Null value for $map[23]");
     compare("==$!map[23]==", vars);
   }
@@ -1523,12 +1519,12 @@ public class TemplateTest {
 
   @Test
   public void nullProperty() throws IOException {
-    // We use a LinkedList with a null element so that list.getFirst() will return null. Then
+    // We use a Deque with a null element so that list.getFirst() will return null. Then
     // $list.first is a null reference.
     @SuppressWarnings("JdkObsolete")
     LinkedList<String> list = new LinkedList<>();
     list.add(null);
-    Map<String, Object> vars = ImmutableMap.of("list", list);
+    ImmutableMap<String, Object> vars = ImmutableMap.of("list", list);
     expectException("==$list.first==", vars, "Null value for $list.first");
     compare("==$!list.first==", vars);
   }
