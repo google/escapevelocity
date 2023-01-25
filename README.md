@@ -198,6 +198,8 @@ EscapeVelocity can evaluate expressions. An expression can be any of these:
   literals.
 * A Boolean literal, `true` or `false`.
 * A list literal, as described below.
+* A map literal, like `{'key1': $value1, $key2: 'value2'}`. The value is a mutable Java map
+  with the given keys and values.
 * Simpler expressions joined together with operators that have the same meaning as in Java:
   `!`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `+`, `-`, `*`, `/`, `%`. The operators have the
   same precedence as in Java.

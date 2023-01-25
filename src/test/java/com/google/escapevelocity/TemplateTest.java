@@ -842,6 +842,42 @@ public class TemplateTest {
   }
 
   @Test
+  public void mapLiterals() {
+    compare("#set ($map = {}) $map");
+    compare("#set ($map = {23: 'skidoo'}) $map");
+    compare("#set ($map = {$x: 17, $y: 23}) $map", ImmutableMap.of("x", "foo", "y", "bar"));
+    compare(
+        "#set ($map = {\n  $x: 17,\n  $y: 23\n}) $map", ImmutableMap.of("x", "foo", "y", "bar"));
+    compare("#set ($map = { $x: 17 , $y : 23 } ) $map", ImmutableMap.of("x", "foo", "y", "bar"));
+
+    // The map is mutable.
+    compare("#set ($map = {}) $!map.put('foo', 'bar') $map");
+
+    // The iteration order of the map is the order it appeared in.
+    compare("#set ($map = {2: 17, 1: 23, 3: 5, -1: -1}) $map.keySet()");
+
+    // The map can contain null keys and values.
+    compare("#set ($map = {$null: 17, 23: $null})", Collections.singletonMap("null", null));
+
+    // The map can contain duplicate keys, and the last value wins.
+    compare("#set ($map = {0: 1, 2: 3, 0: 4}) $map");
+
+    // Map literals can also appear in #if.
+    compare("#foreach ($i in [1, 2, 3]) #if ({$i: true} == {2: true}) true for $i #end #end");
+
+    // Map literals can appear in #foreach but are useless (iterating over the values only).
+    compare("#foreach ($v in {1: 2, 3: 4}) $v #end");
+
+    // Map keys and values must be primaries, not expressions.
+    expectException("#set ($map = {'foo' + 'bar': 1})", "Expected :");
+    expectException("#set ($map = {'foo': 1 + 1})", "Expected }");
+    expectException("#set ($map = {'foo': ('bar')})", "Expected a reference or a literal");
+
+    // Indexing is only available in $references, not after a map literal.
+    expectException("#set ($x = {1: 2, 3: 4}[1]) $x", "Expected )");
+  }
+
+  @Test
   public void rangeLiterals() {
     compare("#set ($range = [1..5]) $range");
     compare("#set ($range = [5 .. 1]) $range");

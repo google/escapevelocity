@@ -15,6 +15,8 @@
  */
 package com.google.escapevelocity;
 
+import static java.util.stream.Collectors.joining;
+
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Verify;
@@ -47,8 +49,10 @@ import java.io.IOException;
 import java.io.LineNumberReader;
 import java.io.Reader;
 import java.io.StringReader;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -60,6 +64,7 @@ import java.util.function.Supplier;
  *
  * @author emcmanus@google.com (Éamonn McManus)
  */
+@SuppressWarnings("Assertion") // We assert on parser state; assert(...) is the right way to do it.
 class Parser {
   private static final int EOF = -1;
 
@@ -1154,26 +1159,37 @@ class Parser {
   private ExpressionNode parsePrimary(boolean nullAllowed) throws IOException {
     skipSpace();
     ExpressionNode node;
-    if (c == '$') {
-      next();
-      node = parseRequiredReference();
-    } else if (c == '"') {
-      node = parseStringLiteral('"', true);
-    } else if (c == '\'') {
-      node = parseStringLiteral('\'', false);
-    } else if (c == '-') {
-      // Velocity does not have a negation operator. If we see '-' it must be the start of a
-      // negative integer literal.
-      next();
-      node = parseIntLiteral("-");
-    } else if (c == '[') {
-      node = parseListLiteral();
-    } else if (isAsciiDigit(c)) {
-      node = parseIntLiteral("");
-    } else if (isAsciiLetter(c)) {
-      node = parseNotOrBooleanOrNullLiteral(nullAllowed);
-    } else {
-      throw parseException("Expected a reference or a literal");
+    switch (c) {
+      case '$':
+        next();
+        node = parseRequiredReference();
+        break;
+      case '"':
+        node = parseStringLiteral('"', true);
+        break;
+      case '\'':
+        node = parseStringLiteral('\'', false);
+        break;
+      case '-':
+        // Velocity does not have a negation operator. If we see '-' it must be the start of a
+        // negative integer literal.
+        next();
+        node = parseIntLiteral("-");
+        break;
+      case '[':
+        node = parseListLiteral();
+        break;
+      case '{':
+        node = parseMapLiteral();
+        break;
+      default:
+        if (isAsciiDigit(c)) {
+          node = parseIntLiteral("");
+        } else if (isAsciiLetter(c)) {
+          node = parseNotOrBooleanOrNullLiteral(nullAllowed);
+        } else {
+          throw parseException("Expected a reference or a literal");
+        }
     }
     skipSpace();
     return node;
@@ -1296,6 +1312,67 @@ class Parser {
         list.add(element.evaluate(context));
       }
       return Collections.unmodifiableList(list);
+    }
+  }
+
+  /**
+   * Parses a map literal.
+   *
+   * <pre>{@code
+   * <map-literal> -> { <map-body> }
+   * <map-body> -> <empty> | <key-value> <more-key-values>
+   * <key-value> -> <primary> : <primary>
+   * <more-key-values> -> <empty> | , <key-value> <more-key-values>
+   * }</pre>
+   */
+  private ExpressionNode parseMapLiteral() throws IOException {
+    assert c == '{';
+    nextNonSpace();
+    ImmutableList.Builder<Map.Entry<ExpressionNode, ExpressionNode>> entries =
+        ImmutableList.builder();
+    if (c != '}') {
+      while (true) {
+        ExpressionNode key = parsePrimary(false);
+        expect(':');
+        ExpressionNode value = parsePrimary(false);
+        entries.add(new SimpleImmutableEntry<>(key, value));
+        if (c == ',') {
+          next();
+        } else {
+          break;
+        }
+      }
+    }
+    expect('}');
+    return new MapLiteralNode(resourceName, lineNumber(), entries.build());
+  }
+
+  private static class MapLiteralNode extends ExpressionNode {
+    private final ImmutableList<Map.Entry<ExpressionNode, ExpressionNode>> entries;
+
+    MapLiteralNode(
+        String resourceName,
+        int lineNumber,
+        ImmutableList<Map.Entry<ExpressionNode, ExpressionNode>> entries) {
+      super(resourceName, lineNumber);
+      this.entries = entries;
+    }
+
+    @Override
+    Object evaluate(EvaluationContext context, boolean undefinedIsFalse) {
+      // We use LinkedHashMap for compatibility with Velocity, and also to allow nulls.
+      Map<Object, Object> map = new LinkedHashMap<>();
+      for (Map.Entry<ExpressionNode, ExpressionNode> entry : entries) {
+        map.put(entry.getKey().evaluate(context), entry.getValue().evaluate(context));
+      }
+      return map;
+    }
+
+    @Override
+    public String toString() {
+      return entries.stream()
+          .map(e -> e.getKey() + ": " + e.getValue())
+          .collect(joining(", ", "{", "}"));
     }
   }
 
