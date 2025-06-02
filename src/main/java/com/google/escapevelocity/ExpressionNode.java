@@ -40,6 +40,17 @@ abstract class ExpressionNode extends Node {
     super(resourceName, lineNumber);
   }
 
+  private static final Class<?> MESSAGE_OR_BUILDER_CLASS;
+  static {
+    Class<?> messageOrBuilderClass;
+    try {
+      messageOrBuilderClass = Class.forName("com.google.protobuf.MessageOrBuilder");
+    } catch (ClassNotFoundException e) {
+      messageOrBuilderClass = null;
+    }
+    MESSAGE_OR_BUILDER_CLASS = messageOrBuilderClass;
+  }
+
   @Override
   final void render(EvaluationContext context, StringBuilder output) {
     Object rendered = evaluate(context);
