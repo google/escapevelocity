@@ -36,7 +36,7 @@ public class MethodFinderTest {
     Map<String, String> map = Collections.singletonMap("foo", "bar");
     Class<?> mapClass = map.getClass();
     assertThat(Modifier.isPublic(mapClass.getModifiers())).isFalse();
-    
+
     Method size = mapClass.getMethod("size");
     Method visibleSize = MethodFinder.visibleMethod(size, mapClass);
     assertThat(visibleSize.getDeclaringClass().isInterface()).isFalse();
@@ -46,14 +46,13 @@ public class MethodFinderTest {
   @Test
   public void visibleMethodFromInterface() throws Exception {
     Map<String, String> map = ImmutableMap.of("foo", "bar");
-    Map.Entry<String, String> entry = map.entrySet().iterator().next();
-    Class<?> entryClass = entry.getClass();
-    assertThat(Modifier.isPublic(entryClass.getModifiers())).isFalse();
-    
-    Method getValue = entryClass.getMethod("getValue");
-    Method visibleGetValue = MethodFinder.visibleMethod(getValue, entryClass);
-    assertThat(visibleGetValue.getDeclaringClass().isInterface()).isTrue();
-    assertThat(visibleGetValue.invoke(entry)).isEqualTo("bar");
+    Class<?> mapClass = map.getClass();
+    assertThat(Modifier.isPublic(mapClass.getModifiers())).isFalse();
+
+    Method size = mapClass.getMethod("size");
+    Method visibleSize = MethodFinder.visibleMethod(size, mapClass);
+    assertThat(visibleSize.getDeclaringClass().isInterface()).isTrue();
+    assertThat(visibleSize.invoke(map)).isEqualTo(1);
   }
 
   @Test
@@ -61,14 +60,14 @@ public class MethodFinderTest {
     List<String> list = Collections.singletonList("foo");
     Class<?> listClass = list.getClass();
     assertThat(Modifier.isPublic(listClass.getModifiers())).isFalse();
-    
+
     MethodFinder methodFinder = new MethodFinder();
     Set<Method> methods = methodFinder.publicMethodsWithName(listClass, "remove");
     // This should find at least remove(int) and remove(Object).
     assertThat(methods.size()).isAtLeast(2);
     assertThat(methods.stream().map(Method::getName).collect(toSet())).containsExactly("remove");
     assertThat(methods.stream().allMatch(MethodFinderTest::isPublic)).isTrue();
-    
+
     // We should cache the result, meaning we get back the same result if we ask a second time.
     Set<Method> methods2 = methodFinder.publicMethodsWithName(listClass, "remove");
     assertThat(methods2).isSameInstanceAs(methods);
@@ -79,7 +78,7 @@ public class MethodFinderTest {
     List<String> list = Collections.singletonList("foo");
     Class<?> listClass = list.getClass();
     assertThat(Modifier.isPublic(listClass.getModifiers())).isFalse();
-    
+
     MethodFinder methodFinder = new MethodFinder();
     Set<Method> methods = methodFinder.publicMethodsWithName(listClass, "nonexistentMethod");
     assertThat(methods).isEmpty();
