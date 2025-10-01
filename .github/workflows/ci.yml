@@ -13,7 +13,7 @@ jobs:
     name: "JDK ${{ matrix.java }}"
     strategy:
       matrix:
-        java: [ 8, 11, 15 ]
+        java: [ 8, 11, 25 ]
     runs-on: ubuntu-latest
     steps:
       # Cancel any previous runs for the same branch that are still running.
@@ -27,7 +27,7 @@ jobs:
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165
         with:
           java-version: ${{ matrix.java }}
-          distribution: 'zulu'
+          distribution: 'temurin'
           cache: 'maven'
       - name: 'Install'
         shell: bash
