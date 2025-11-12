@@ -79,9 +79,7 @@ public class ReferenceNodeTest {
             (from == to || ASSIGNMENT_COMPATIBLE.contains(ImmutableList.of(from, to)));
         boolean actual =
             MethodReferenceNode.primitiveTypeIsAssignmentCompatible(to, from);
-        expect
-            .withMessage(from + " assignable to " + to)
-            .that(actual).isEqualTo(expected);
+        expect.withMessage("%s assignable to %s", from, to).that(actual).isEqualTo(expected);
       }
     }
   }
