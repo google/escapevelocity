@@ -1526,6 +1526,108 @@ public class TemplateTest {
   }
 
   @Test
+  public void evaluateBlocksReflectionChainViaGetClass() throws IOException {
+    String template = "#evaluate($payload)";
+    String payload =
+        "#set($clazz = $dummy.getClass())"
+            + "$clazz.forName('java.lang.Runtime')";
+    Map<String, Object> vars = new HashMap<>();
+    vars.put("dummy", "anything");
+    vars.put("payload", payload);
+    Template parsed = Template.parseFrom(new StringReader(template));
+    EvaluationException e =
+        assertThrows(EvaluationException.class, () -> parsed.evaluate(vars));
+    assertThat(e).hasMessageThat().contains("no method getClass");
+  }
+
+  @Test
+  public void blocksGetClassOnAnyObject() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$x.getClass()"));
+    EvaluationException e =
+        assertThrows(
+            EvaluationException.class,
+            () -> parsed.evaluate(ImmutableMap.of("x", "hello")));
+    assertThat(e).hasMessageThat().contains("no method getClass");
+  }
+
+  @Test
+  public void blocksClassForName() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$C.forName('java.lang.Runtime')"));
+    EvaluationException e =
+        assertThrows(
+            EvaluationException.class,
+            () -> parsed.evaluate(ImmutableMap.of("C", Class.class)));
+    assertThat(e).hasMessageThat().contains("no method forName");
+  }
+
+  @Test
+  public void blocksClassGetMethod() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$C.getMethod('getRuntime', $empty)"));
+    Map<String, Object> vars = new HashMap<>();
+    vars.put("C", Runtime.class);
+    vars.put("empty", new Class<?>[0]);
+    EvaluationException e =
+        assertThrows(EvaluationException.class, () -> parsed.evaluate(vars));
+    assertThat(e).hasMessageThat().contains("no method getMethod");
+  }
+
+  @Test
+  public void blocksMethodInvoke() throws Exception {
+    java.lang.reflect.Method method = String.class.getMethod("valueOf", int.class);
+    Template parsed = Template.parseFrom(new StringReader("$m.invoke(null, 42)"));
+    Map<String, Object> vars = new HashMap<>();
+    vars.put("m", method);
+    EvaluationException e =
+        assertThrows(EvaluationException.class, () -> parsed.evaluate(vars));
+    assertThat(e).hasMessageThat().contains("no method invoke");
+  }
+
+  @Test
+  public void blocksRuntimeExec() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$rt.exec('id')"));
+    EvaluationException e =
+        assertThrows(
+            EvaluationException.class,
+            () -> parsed.evaluate(ImmutableMap.of("rt", Runtime.getRuntime())));
+    assertThat(e).hasMessageThat().contains("no method exec");
+  }
+
+  @Test
+  public void blocksProcessBuilder() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$pb.start()"));
+    EvaluationException e =
+        assertThrows(
+            EvaluationException.class,
+            () ->
+                parsed.evaluate(
+                    ImmutableMap.of("pb", new ProcessBuilder("echo", "pwned"))));
+    assertThat(e).hasMessageThat().contains("no method start");
+  }
+
+  @Test
+  public void blocksFullRceChainViaEvaluate() throws IOException {
+    String rcePayload =
+        "#set($m=$Class.forName('java.lang.Runtime').getMethod('getRuntime', $noParamTypes))"
+            + "#set($rt=$m.invoke(null, $noArgs))"
+            + "$rt.exec('touch /tmp/test-pwned')";
+    Map<String, Object> vars = new HashMap<>();
+    vars.put("Class", Class.class);
+    vars.put("noParamTypes", new Class<?>[0]);
+    vars.put("noArgs", new Object[0]);
+    vars.put("payload", rcePayload);
+    Template parsed = Template.parseFrom(new StringReader("#evaluate($payload)"));
+    assertThrows(EvaluationException.class, () -> parsed.evaluate(vars));
+    assertThat(new java.io.File("/tmp/test-pwned").exists()).isFalse();
+  }
+
+  @Test
+  public void allowsSafeMethodsOnClass() throws IOException {
+    Template parsed = Template.parseFrom(new StringReader("$Integer.getName()"));
+    String result = parsed.evaluate(ImmutableMap.of("Integer", Integer.class));
+    assertThat(result).isEqualTo("java.lang.Integer");
+  }
+
+  @Test
   public void nullReference() throws IOException {
     Map<String, Object> vars = Collections.singletonMap("foo", null);
     expectException("==$foo==", vars, "Null value for $foo");
