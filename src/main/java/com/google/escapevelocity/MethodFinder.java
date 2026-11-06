@@ -19,6 +19,7 @@ import static com.google.common.reflect.Reflection.getPackageName;
 import static java.util.stream.Collectors.toSet;
 
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Table;
 import java.lang.reflect.Method;
@@ -38,6 +39,40 @@ import java.util.Set;
  * a cache of methods it previously discovered.
  */
 class MethodFinder {
+
+  /**
+   * Methods that are blocked from being invoked in templates to prevent reflection-based attacks
+   * such as Remote Code Execution via {@code getClass().forName(...).getMethod(...).invoke(...)}.
+   *
+   * <p>The key is the fully-qualified class name. If the value is an empty set, <em>all</em> methods
+   * on that class are blocked. Otherwise only the named methods are blocked.
+   */
+  private static final ImmutableMap<String, ImmutableSet<String>> BLOCKED_METHODS =
+      ImmutableMap.<String, ImmutableSet<String>>builder()
+          // Prevent obtaining Class objects from arbitrary instances.
+          .put("java.lang.Object", ImmutableSet.of("getClass"))
+          // Prevent reflective class loading, method/constructor/field lookup, and instantiation.
+          .put("java.lang.Class", ImmutableSet.of(
+              "forName", "newInstance",
+              "getMethod", "getMethods", "getDeclaredMethod", "getDeclaredMethods",
+              "getConstructor", "getConstructors",
+              "getDeclaredConstructor", "getDeclaredConstructors",
+              "getField", "getFields", "getDeclaredField", "getDeclaredFields",
+              "getClassLoader"))
+          // Prevent reflective invocation and instantiation.
+          .put("java.lang.reflect.Method", ImmutableSet.of("invoke"))
+          .put("java.lang.reflect.Constructor", ImmutableSet.of("newInstance"))
+          .put("java.lang.reflect.Field", ImmutableSet.of("get", "set"))
+          // Prevent direct command execution.
+          .put("java.lang.Runtime", ImmutableSet.of("exec", "getRuntime"))
+          .put("java.lang.ProcessBuilder", ImmutableSet.of())
+          // Prevent class loading.
+          .put("java.lang.ClassLoader", ImmutableSet.of())
+          .put("java.lang.Thread", ImmutableSet.of(
+              "getContextClassLoader", "setContextClassLoader"))
+          // Prevent JVM shutdown and environment access.
+          .put("java.lang.System", ImmutableSet.of("exit", "setSecurityManager"))
+          .build();
 
   /**
    * For a given class and name, returns all public methods of that name in the class, as previously
@@ -76,6 +111,7 @@ class MethodFinder {
     Set<Method> methods =
         Arrays.stream(startClass.getMethods())
             .filter(m -> m.getName().equals(name))
+            .filter(m -> !isMethodBlocked(m))
             .collect(toSet());
     if (!classIsPublic(startClass)) {
       methods =
@@ -87,6 +123,35 @@ class MethodFinder {
       // problems in the past with versions of Guava that don't have that method.
     }
     return ImmutableSet.copyOf(methods);
+  }
+
+  /**
+   * Returns true if the given method is on the blocklist. A method is blocked if the class that
+   * declares it (or any of its ancestors) appears in {@link #BLOCKED_METHODS} with either an empty
+   * set (meaning all methods are blocked) or a set containing the method name.
+   */
+  private static boolean isMethodBlocked(Method method) {
+    Class<?> declaringClass = method.getDeclaringClass();
+    return isBlockedInHierarchy(declaringClass, method.getName());
+  }
+
+  private static boolean isBlockedInHierarchy(Class<?> clazz, String methodName) {
+    if (clazz == null) {
+      return false;
+    }
+    ImmutableSet<String> blocked = BLOCKED_METHODS.get(clazz.getName());
+    if (blocked != null && (blocked.isEmpty() || blocked.contains(methodName))) {
+      return true;
+    }
+    if (isBlockedInHierarchy(clazz.getSuperclass(), methodName)) {
+      return true;
+    }
+    for (Class<?> iface : clazz.getInterfaces()) {
+      if (isBlockedInHierarchy(iface, methodName)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static final String THIS_PACKAGE = getPackageName(Node.class) + ".";
